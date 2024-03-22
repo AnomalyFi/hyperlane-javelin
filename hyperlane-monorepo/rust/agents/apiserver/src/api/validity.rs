@@ -58,24 +58,24 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
     if !whitelist.msg_matches(&message, true) {
         debug!(?message, whitelist=?whitelist, "Message not whitelisted, skipping");
 
-        let mut res = Response::new(404);
-        Ok(res)
+        let res = Response::new(404);
+        return Ok(res)
     }
 
     // Skip if the message is blacklisted
     if blacklist.msg_matches(&message, false) {
         debug!(?message, blacklist=?blacklist, "Message blacklisted, skipping");
 
-        let mut res = Response::new(404);
-        Ok(res)
+        let res = Response::new(404);
+        return Ok(res)
     }
 
     // Skip if the message is intended for this origin
     if destination == db_clone.domain().id() {
         debug!(?message, "Message destined for self, skipping");
 
-        let mut res = Response::new(404);
-        Ok(res)
+        let res = Response::new(404);
+        return Ok(res)
     }
 
     // Skip if the message is intended for a destination we do not service
@@ -86,8 +86,6 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
     // }
 
     debug!(%message, "Sending message to submitter");
-
-
 
     //MerkleTreeProcessor Logic
     prover
@@ -135,19 +133,13 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         Some(proof),
     );
 
-
     // Finally, build the submit arg and dispatch it to the submitter.
     let pending_msg = PendingMessage::from_persisted_retries(
         message,
         destination_ctxs[&destination].clone(),
     );
 
-
-
-
-    //TODO implement all this code to avoid a message getting resubmitted. This will play into our checkout system that tracks the messaages within one block
-
-
+    //TODO This will play into our checkout system that tracks the messaages within one block
 
     // If the message has already been processed, e.g. due to another apiserver having
     // already processed, then mark it as already-processed, and move on to
@@ -161,8 +153,8 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
     if is_already_delivered {
         debug!("Message has already been delivered, marking as submitted.");
 
-        let mut res = Response::new(404);
-        Ok(res)
+        let res = Response::new(404);
+        return Ok(res)
     }
 
     let provider = pending_msg.ctx.destination_mailbox.provider();
@@ -176,8 +168,8 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
                 recipient=?pending_msg.message.recipient,
                 "Dropping message because recipient is not a contract"
             );
-        let mut res = Response::new(404);
-        Ok(res)
+        let res = Response::new(404);
+        return Ok(res)
     }
 
     // let ism_address =  pending_msg.ctx
@@ -254,7 +246,7 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         .await
         .context("checking if message meets gas payment requirement")? else {
         info!(?tx_cost_estimate, "Gas payment requirement not met yet");
-        let mut res = Response::new(404);
+        let res = Response::new(404);
         Ok(res)
     };
 
@@ -269,8 +261,8 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
     if let Some(max_limit) = pending_msg.ctx.transaction_gas_limit {
         if gas_limit > max_limit {
             info!("Message delivery estimated gas exceeds max gas limit");
-            let mut res = Response::new(404);
-            Ok(res)
+            let res = Response::new(404);
+            return Ok(res)
         }
     }
 
@@ -292,6 +284,6 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
     // Return the complete transaction to the builder who includes it in a block.
     let mut res = Response::new(200);
     res.set_body(Body::from_json(&response_body)?);
-    Ok(res)
+    return Ok(res)
 
 }
