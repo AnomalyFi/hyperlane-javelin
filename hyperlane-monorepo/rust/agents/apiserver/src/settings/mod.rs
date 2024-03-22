@@ -95,6 +95,8 @@ struct RawAPIServerSettings(Value);
 impl_loadable_from_settings!(APIServer, RawAPIServerSettings -> APIServerSettings);
 
 impl FromRawConf<RawAPIServerSettings> for APIServerSettings {
+
+    // TODO need to add validator signer here to the config
     fn from_config_filtered(
         raw: RawAPIServerSettings,
         cwp: &ConfigPath,

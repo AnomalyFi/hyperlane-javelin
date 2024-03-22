@@ -19,10 +19,10 @@ use crate::msg::metadata::MetadataBuilder;
 #[derive(new, AsRef, Deref)]
 pub struct MultisigMetadata {
     #[deref]
-    quorum_checkpoint: MultisigSignedCheckpoint,
-    merkle_leaf_index: u32,
+    pub quorum_checkpoint: MultisigSignedCheckpoint,
+    pub merkle_leaf_index: u32,
     // optional because it's only used for MerkleRootMultisig
-    proof: Option<Proof>,
+    pub proof: Option<Proof>,
 }
 
 #[derive(Debug, Display, PartialEq, Eq, Clone)]

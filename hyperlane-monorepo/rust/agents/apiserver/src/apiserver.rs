@@ -58,11 +58,19 @@ pub struct State {
     signer: SingletonSignerHandle,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ValidityRequest {
-    domain: HyperlaneDomain,
-    message: HyperlaneMessage,
-    insertion: MerkleTreeInsertion,
+    pub domain: HyperlaneDomain,
+    pub message: HyperlaneMessage,
+    //insertion: MerkleTreeInsertion,
+}
+
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ValidityResponse {
+    pub domain: HyperlaneDomain,
+    pub message: HyperlaneMessage,
+    //insertion: MerkleTreeInsertion,
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
@@ -143,8 +151,6 @@ impl BaseAgent for APIServer {
 
         // Intentionally using hyperlane_ethereum for the validator's signer
         let (signer_instance, signer) = SingletonSigner::new(settings.validator.build().await?);
-
-
 
         let mailboxes = settings
             .build_mailboxes(settings.destination_chains.iter(), &core_metrics)

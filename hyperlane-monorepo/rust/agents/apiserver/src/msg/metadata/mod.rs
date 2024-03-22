@@ -1,7 +1,7 @@
 mod aggregation;
 mod base;
 mod ccip_read;
-mod multisig;
+pub(crate) mod multisig;
 mod null_metadata;
 mod routing;
 
