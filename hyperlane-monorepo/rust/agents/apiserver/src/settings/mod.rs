@@ -20,6 +20,7 @@ use hyperlane_core::{cfg_unwrap_all, config::*, HyperlaneDomain, U256};
 use itertools::Itertools;
 use serde::Deserialize;
 use serde_json::Value;
+use hyperlane_base::settings::parser::RawAgentSignerConf;
 use hyperlane_base::settings::SignerConf;
 
 use crate::settings::matching_list::MatchingList;
@@ -112,6 +113,16 @@ impl FromRawConf<RawAPIServerSettings> for APIServerSettings {
             .parse_string()
             .end()
             .map(|v| v.split(',').collect());
+
+        let validator = p
+            .chain(&mut err)
+            .get_key("validator")
+            .parse_from_raw_config::<SignerConf, RawAgentSignerConf, NoFilter>(
+                (),
+                "Expected valid validator configuration",
+            )
+            .end();
+
 
         let base = p
             .parse_from_raw_config::<Settings, RawAgentConf, Option<&HashSet<&str>>>(
@@ -216,7 +227,7 @@ impl FromRawConf<RawAPIServerSettings> for APIServerSettings {
             .parse_bool()
             .unwrap_or(false);
 
-        cfg_unwrap_all!(cwp, err: [base]);
+        cfg_unwrap_all!(cwp, err: [base, validator]);
 
         let skip_transaction_gas_limit_for = skip_transaction_gas_limit_for_names
             .into_iter()
@@ -278,6 +289,7 @@ impl FromRawConf<RawAPIServerSettings> for APIServerSettings {
             skip_transaction_gas_limit_for,
             allow_local_checkpoint_syncers,
             metric_app_contexts,
+            validator,
         })
     }
 }

@@ -68,9 +68,9 @@ pub struct ValidityRequest {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ValidityResponse {
-    pub domain: HyperlaneDomain,
     pub message: HyperlaneMessage,
-    //insertion: MerkleTreeInsertion,
+    pub metadata: Vec<u8>,
+    pub gas_limit: U256,
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]

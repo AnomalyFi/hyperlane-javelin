@@ -4,7 +4,7 @@ use eyre::Context;
 use tide::{Request, Response, Body};
 use tracing::{debug, info, trace};
 use hyperlane_core::{Checkpoint, CheckpointWithMessageId, MultisigSignedCheckpoint, HyperlaneSignerExt};
-use crate::apiserver::{State, ValidityRequest};
+use crate::apiserver::{State, ValidityRequest, ValidityResponse};
 use crate::msg::pending_message::PendingMessage;
 use crate::msg::metadata::multisig::{MetadataToken, MultisigMetadata};
 use crate::msg::pending_operation::PendingOperationResult;
@@ -60,7 +60,6 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
 
         let mut res = Response::new(404);
         Ok(res)
-
     }
 
     // Skip if the message is blacklisted
@@ -275,19 +274,24 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         }
     }
 
-    let submission_data = Some(Box::new(crate::msg::pending_message::SubmissionData {
+    // let submission_data = Some(Box::new(crate::msg::pending_message::SubmissionData {
+    //     metadata: meta,
+    //     gas_limit,
+    // }));
+
+
+    let response_body = ValidityResponse {
+        message: pending_msg,
         metadata: meta,
         gas_limit,
-    }));
-
-
+    };
     //TODO return pending_metadata.message, submission_data.metadata, submission_data.gas_limit
 
 
 
     // Return the complete transaction to the builder who includes it in a block.
     let mut res = Response::new(200);
-    res.set_body(Body::from_json(&signed_check)?);
+    res.set_body(Body::from_json(&response_body)?);
     Ok(res)
 
 }
