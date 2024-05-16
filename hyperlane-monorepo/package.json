@@ -27,8 +27,7 @@
     "coverage": "yarn workspaces foreach --all --parallel run coverage",
     "version:prepare": "yarn changeset version && yarn workspaces foreach --all --parallel run version:update && yarn install --no-immutable",
     "version:check": "yarn changeset status",
-    "release": "yarn build && yarn changeset publish",
-    "postinstall": "husky install"
+    "release": "yarn build && yarn changeset publish"
   },
   "workspaces": [
     "solidity",
