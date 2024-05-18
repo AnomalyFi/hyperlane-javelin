@@ -1,5 +1,6 @@
 use ethers::abi::Token;
-use eyre::{Context, Report, Result};
+use eyre::{Report, Result};
+use anyhow::Context;
 
 use tide::{Request, Response, Body};
 use tracing::{debug, info, error};
@@ -105,6 +106,7 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         .await
         .get_proof(tree.index(), tree.index())
         .context(CTX)?;
+
 
     let mcm = MultisigSignedCheckpoint {
         checkpoint: cm,
