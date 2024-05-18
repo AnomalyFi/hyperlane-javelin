@@ -1,10 +1,10 @@
-use std::time::Instant;
 use ethers::abi::Token;
-use eyre::Context;
+use eyre::{Context, ErrReport};
 use tide::{Request, Response, Body};
 use tracing::{debug, info, trace};
 use hyperlane_core::{Checkpoint, CheckpointWithMessageId, MultisigSignedCheckpoint, HyperlaneSignerExt};
 use crate::apiserver::{State, ValidityRequest, ValidityResponse};
+use crate::merkle_tree::builder::MerkleTreeBuilderError;
 use crate::msg::pending_message::PendingMessage;
 use crate::msg::metadata::multisig::{MetadataToken, MultisigMetadata};
 use crate::msg::pending_operation::PendingOperationResult;
@@ -38,7 +38,7 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
 
     let destination_ctxs = destination_chains
         .keys()
-        .filter(|&destination| destination != domain)
+        .filter(|&destination| destination != domain.clone())
         .map(|destination| {
             (
                 destination.id(),
@@ -92,7 +92,8 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         .write()
         .await
         .ingest_message_id(message.id())
-        .await?;
+        .await
+        .map_err(ErrReport::from);
 
 
     let tree = prover.read().await.incremental;
@@ -148,7 +149,8 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         .destination_mailbox
         .delivered(pending_msg.message.id())
         .await
-        .context("checking message delivery status")?;
+        .context("checking message delivery status")
+        .map_err(ErrReport::from);;
 
     if is_already_delivered {
         debug!("Message has already been delivered, marking as submitted.");

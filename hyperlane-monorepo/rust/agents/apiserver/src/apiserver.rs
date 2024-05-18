@@ -23,11 +23,9 @@ use tokio::{
     },
     task::JoinHandle,
 };
-use tracing::{info, info_span, instrument::Instrumented, Instrument, debug};
+use tracing::{info, info_span, instrument::Instrumented, Instrument};
 
-use tide::Request;
 use tide::prelude::*;
-use hyperlane_core::accumulator::incremental::IncrementalMerkle;
 use hyperlane_ethereum::{SingletonSigner, SingletonSignerHandle};
 
 
@@ -42,7 +40,6 @@ use crate::{api, merkle_tree::builder::MerkleTreeBuilder, msg::{
     processor::{MessageProcessor, MessageProcessorMetrics},
     serial_submitter::{SerialSubmitter, SerialSubmitterMetrics},
 }, settings::{matching_list::MatchingList, APIServerSettings}};
-use crate::msg::pending_message::PendingMessage;
 
 
 
@@ -528,7 +525,7 @@ impl APIServer {
             dbs: self.dbs.clone(),
             whitelist: self.whitelist.clone(),
             blacklist: self.blacklist.clone(),
-            msg_ctxs: self.msg_ctxs.clones(),
+            msg_ctxs: self.msg_ctxs.clone(),
             signer: self.signer.clone(),
         };
 
