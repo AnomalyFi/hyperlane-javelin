@@ -1,14 +1,12 @@
 use ethers::abi::Token;
-use eyre::{Context, ErrReport};
+use eyre::{Context, Report};
 use tide::{Request, Response, Body};
-use tracing::{debug, info, trace};
+use tracing::{debug, info, error};
 use hyperlane_core::{Checkpoint, CheckpointWithMessageId, MultisigSignedCheckpoint, HyperlaneSignerExt};
 use crate::apiserver::{State, ValidityRequest, ValidityResponse};
 use crate::merkle_tree::builder::MerkleTreeBuilderError;
 use crate::msg::pending_message::PendingMessage;
 use crate::msg::metadata::multisig::{MetadataToken, MultisigMetadata};
-use crate::msg::pending_operation::PendingOperationResult;
-
 
 pub async fn check_validity(mut req: Request<State>) -> tide::Result {
     let ValidityRequest { domain, message } = req.body_json().await?;
@@ -25,20 +23,15 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         ..
     } = req.state().clone();
 
-
     // Get the prover from the prover_syncs map based on the domain.
     let prover = prover_syncs.get(&domain).cloned().ok_or_else(|| tide::Error::from_str(404, "Prover not found"))?;
 
     // Get the database from the dbs map based on the domain.
     let db_clone = dbs.get(&domain).ok_or_else(|| tide::Error::from_str(404, "Database not found"))?.clone();
 
-    // let snap = db_clone.snapshot_db();
-
-    //MessageProcessor Logic
-
     let destination_ctxs = destination_chains
         .keys()
-        .filter(|&destination| destination != domain.clone())
+        .filter(|&destination| destination != &domain)
         .map(|destination| {
             (
                 destination.id(),
@@ -49,8 +42,7 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
                     .clone(),
             )
         })
-        .collect();
-
+        .collect::<std::collections::HashMap<_, _>>();
 
     let destination = message.destination;
 
@@ -59,45 +51,36 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         debug!(?message, whitelist=?whitelist, "Message not whitelisted, skipping");
 
         let res = Response::new(404);
-        return Ok(res)
+        return Ok(res);
     }
 
-    // Skip if the message is blacklisted
+    // Skip if the message is blacklisted.
     if blacklist.msg_matches(&message, false) {
         debug!(?message, blacklist=?blacklist, "Message blacklisted, skipping");
 
         let res = Response::new(404);
-        return Ok(res)
+        return Ok(res);
     }
 
-    // Skip if the message is intended for this origin
+    // Skip if the message is intended for this origin.
     if destination == db_clone.domain().id() {
         debug!(?message, "Message destined for self, skipping");
 
         let res = Response::new(404);
-        return Ok(res)
+        return Ok(res);
     }
-
-    // Skip if the message is intended for a destination we do not service
-    // if !self.send_channels.contains_key(&destination) {
-    //     debug!(?message, "Message destined for unknown domain, skipping");
-    //     self.message_nonce += 1;
-    //     return Ok(());
-    // }
 
     debug!(%message, "Sending message to submitter");
 
-    //MerkleTreeProcessor Logic
+    // MerkleTreeProcessor Logic
     prover
         .write()
         .await
         .ingest_message_id(message.id())
         .await
-        .map_err(ErrReport::from);
-
+        .map_err(Report::from)?;
 
     let tree = prover.read().await.incremental;
-
 
     let origin_conf = origin_chains.get(db_clone.domain()).unwrap().clone();
 
@@ -116,12 +99,12 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
     let signed_check = signer.sign(cm).await?;
 
     const CTX: &str = "When fetching message proof";
-    //TODO this is completely unneccessary but was kept from when validators and relayers weren't the same entity so the index might not match in those cases
     let proof = prover
         .read()
         .await
         .get_proof(tree.index(), tree.index())
-        .context(CTX)?;
+        .context(CTX)
+        .map_err(Report::from)?;
 
     let mcm = MultisigSignedCheckpoint {
         checkpoint: cm,
@@ -140,23 +123,27 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         destination_ctxs[&destination].clone(),
     );
 
-    //TODO This will play into our checkout system that tracks the messaages within one block
-
-    // If the message has already been processed, e.g. due to another apiserver having
-    // already processed, then mark it as already-processed, and move on to
-    // the next tick.
     let is_already_delivered = pending_msg.ctx
         .destination_mailbox
         .delivered(pending_msg.message.id())
         .await
         .context("checking message delivery status")
-        .map_err(ErrReport::from);;
+        .map_err(Report::from)?;
 
-    if is_already_delivered {
-        debug!("Message has already been delivered, marking as submitted.");
+    match is_already_delivered {
+        Ok(true) => {
+            debug!("Message has already been delivered, marking as submitted.");
 
-        let res = Response::new(404);
-        return Ok(res)
+            let res = Response::new(404);
+            return Ok(res);
+        }
+        Ok(false) => {
+            // Continue with the rest of your logic if not delivered
+        }
+        Err(e) => {
+            error!("Error checking delivery status: {:?}", e);
+            return Err(e.into()); // Propagate the error
+        }
     }
 
     let provider = pending_msg.ctx.destination_mailbox.provider();
@@ -164,22 +151,14 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
     // We cannot deliver to an address that is not a contract so check and drop if it isn't.
     let is_contract = provider.is_contract(&pending_msg.message.recipient).await.context("checking if message recipient is a contract")?;
 
-
-    if !is_contract {
+    if (!is_contract) {
         info!(
-                recipient=?pending_msg.message.recipient,
-                "Dropping message because recipient is not a contract"
-            );
+            recipient=?pending_msg.message.recipient,
+            "Dropping message because recipient is not a contract"
+        );
         let res = Response::new(404);
-        return Ok(res)
+        return Ok(res);
     }
-
-    // let ism_address =  pending_msg.ctx
-    //     .destination_mailbox
-    //     .recipient_ism(pending_msg.message.recipient)
-    //     .await
-    //     .context("fetching ISM address. Potentially malformed recipient ISM address.")?;
-
 
     let build_token = |token: &MetadataToken| -> eyre::Result<Vec<u8>> {
         match token {
@@ -230,18 +209,12 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
 
     let meta: Vec<u8> = metas?.into_iter().flatten().collect();
 
-
-    // Estimate transaction costs for the process call. If there are issues, it's
-    // likely that gas estimation has failed because the message is
-    // reverting. This is defined behavior, so we just log the error and
-    // move onto the next tick.
     let tx_cost_estimate = pending_msg.ctx
         .destination_mailbox
         .process_estimate_costs(&pending_msg.message, &meta)
         .await
         .context("estimating costs for process call")?;
 
-    // If the gas payment requirement hasn't been met, move to the next tick.
     let Some(gas_limit) = pending_msg.ctx
         .origin_gas_payment_enforcer
         .message_meets_gas_payment_requirement(&pending_msg.message, &tx_cost_estimate)
@@ -249,14 +222,13 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         .context("checking if message meets gas payment requirement")? else {
         info!(?tx_cost_estimate, "Gas payment requirement not met yet");
         let res = Response::new(404);
-        Ok(res)
+        return Ok(res);
     };
 
-    // Go ahead and attempt processing of message to destination chain.
     debug!(
-            ?gas_limit,
-            "Gas payment requirement met, ready to process message"
-        );
+        ?gas_limit,
+        "Gas payment requirement met, ready to process message"
+    );
 
     let gas_limit = tx_cost_estimate.gas_limit;
 
@@ -264,28 +236,17 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         if gas_limit > max_limit {
             info!("Message delivery estimated gas exceeds max gas limit");
             let res = Response::new(404);
-            return Ok(res)
+            return Ok(res);
         }
     }
-
-    // let submission_data = Some(Box::new(crate::msg::pending_message::SubmissionData {
-    //     metadata: meta,
-    //     gas_limit,
-    // }));
-
 
     let response_body = ValidityResponse {
         message: pending_msg,
         metadata: meta,
         gas_limit,
     };
-    //TODO return pending_metadata.message, submission_data.metadata, submission_data.gas_limit
 
-
-
-    // Return the complete transaction to the builder who includes it in a block.
     let mut res = Response::new(200);
     res.set_body(Body::from_json(&response_body)?);
-    return Ok(res)
-
+    Ok(res)
 }
