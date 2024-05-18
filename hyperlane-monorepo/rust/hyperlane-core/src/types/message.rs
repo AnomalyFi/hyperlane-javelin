@@ -1,6 +1,8 @@
 use sha3::{digest::Update, Digest, Keccak256};
 use std::fmt::{Debug, Display, Formatter};
 use bincode::{serialize, deserialize};
+use serde::{Deserialize, Serialize};
+
 
 use crate::utils::{fmt_address_for_domain, fmt_domain};
 use crate::{Decode, Encode, HyperlaneProtocolError, Sequenced, H256};
