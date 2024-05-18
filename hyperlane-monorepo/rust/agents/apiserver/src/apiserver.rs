@@ -45,14 +45,14 @@ use crate::{api, merkle_tree::builder::MerkleTreeBuilder, msg::{
 
 #[derive(Clone, Debug)]
 pub struct State {
-    origin_chains: HashMap<HyperlaneDomain, ChainConf>,
-    destination_chains: HashMap<HyperlaneDomain, ChainConf>,
-    prover_syncs: HashMap<HyperlaneDomain, Arc<RwLock<MerkleTreeBuilder>>>,
-    dbs: HashMap<HyperlaneDomain, HyperlaneRocksDB>,
-    whitelist: Arc<MatchingList>,
-    blacklist: Arc<MatchingList>,
-    msg_ctxs: HashMap<ContextKey, Arc<MessageContext>>,
-    signer: SingletonSignerHandle,
+    pub origin_chains: HashMap<HyperlaneDomain, ChainConf>,
+    pub destination_chains: HashMap<HyperlaneDomain, ChainConf>,
+    pub prover_syncs: HashMap<HyperlaneDomain, Arc<RwLock<MerkleTreeBuilder>>>,
+    pub dbs: HashMap<HyperlaneDomain, HyperlaneRocksDB>,
+    pub whitelist: Arc<MatchingList>,
+    pub blacklist: Arc<MatchingList>,
+    pub msg_ctxs: HashMap<ContextKey, Arc<MessageContext>>,
+    pub signer: SingletonSignerHandle,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
