@@ -27,11 +27,12 @@ RUN \
   --mount=id=cargo,type=cache,sharing=locked,target=/usr/src/target \
   --mount=id=cargo-home-registry,type=cache,sharing=locked,target=/usr/local/cargo/registry \
   --mount=id=cargo-home-git,type=cache,sharing=locked,target=/usr/local/cargo/git \
-    cargo build --release --bin validator --bin relayer --bin scraper && \
+    cargo build --release --bin validator --bin relayer --bin scraper --bin apiserver && \
     mkdir -p /release && \
     cp /usr/src/target/release/validator /release && \
     cp /usr/src/target/release/relayer /release && \
-    cp /usr/src/target/release/scraper /release
+    cp /usr/src/target/release/scraper /release && \
+    cp /usr/src/target/release/apiserver /release
 
 ## 2: Copy the binaries to release image
 FROM ubuntu:22.04
