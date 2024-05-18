@@ -4847,6 +4847,7 @@ dependencies = [
  "async-trait",
  "auto_impl 1.1.0",
  "bigdecimal 0.4.2",
+ "bincode",
  "borsh 0.9.3",
  "bs58 0.5.0",
  "bytes",

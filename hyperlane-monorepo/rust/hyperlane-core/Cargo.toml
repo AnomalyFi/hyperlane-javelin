@@ -43,6 +43,7 @@ primitive-types = { workspace = true, optional = true }
 solana-sdk = { workspace = true, optional = true }
 tiny-keccak = { workspace = true, features = ["keccak"]}
 uint.workspace = true
+bincode = "1.3.3"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "time"] }
