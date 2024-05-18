@@ -1,6 +1,6 @@
 use sha3::{digest::Update, Digest, Keccak256};
 use std::fmt::{Debug, Display, Formatter};
-use bincode::{serialize, deserialize};
+//use bincode::{serialize, deserialize};
 use serde::{Deserialize, Serialize};
 
 
@@ -178,12 +178,12 @@ impl HyperlaneMessage {
         H256::from_slice(Keccak256::new().chain(self.to_vec()).finalize().as_slice())
     }
 
-    pub fn to_bytes(&self) -> Vec<u8> {
-        serialize(self).expect("Serialization failed")
-    }
-
-    pub fn from_bytes(bytes: &[u8]) -> Self {
-        deserialize(bytes).expect("Deserialization failed")
-    }
+    // pub fn to_bytes(&self) -> Vec<u8> {
+    //     serialize(self).expect("Serialization failed")
+    // }
+    //
+    // pub fn from_bytes(bytes: &[u8]) -> Self {
+    //     deserialize(bytes).expect("Deserialization failed")
+    // }
 }
 
