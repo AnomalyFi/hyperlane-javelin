@@ -39,6 +39,7 @@ async-std = { version = "1.8.0", features = ["attributes"] }
 hyperlane-core = { path = "../../hyperlane-core", features = ["agent"] }
 hyperlane-base = { path = "../../hyperlane-base" }
 hyperlane-ethereum = { path = "../../chains/hyperlane-ethereum" }
+anyhow = "1.0.75"
 
 [dev-dependencies]
 once_cell.workspace = true

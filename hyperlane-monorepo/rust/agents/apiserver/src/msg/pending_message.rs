@@ -28,6 +28,7 @@ const CONFIRM_DELAY: Duration = if cfg!(any(test, feature = "test-utils")) {
 
 /// The message context contains the links needed to submit a message. Each
 /// instance is for a unique origin -> destination pairing.
+#[derive(Debug)]
 pub struct MessageContext {
     /// Mailbox on the destination chain.
     pub destination_mailbox: Arc<dyn Mailbox>,

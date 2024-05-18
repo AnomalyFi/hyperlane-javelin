@@ -15,7 +15,7 @@ use hyperlane_base::{
     BaseAgent, ContractSyncMetrics, CoreMetrics, HyperlaneAgentCore, SequencedDataContractSync,
     WatermarkContractSync,
 };
-use hyperlane_core::{metrics::agent::METRICS_SCRAPE_INTERVAL, HyperlaneDomain, HyperlaneMessage, InterchainGasPayment, MerkleTreeInsertion, U256, Checkpoint};
+use hyperlane_core::{metrics::agent::METRICS_SCRAPE_INTERVAL, HyperlaneDomain, HyperlaneMessage, InterchainGasPayment, MerkleTreeInsertion, U256};
 use tokio::{
     sync::{
         mpsc::{self, UnboundedReceiver, UnboundedSender},
@@ -23,11 +23,9 @@ use tokio::{
     },
     task::JoinHandle,
 };
-use tracing::{info, info_span, instrument::Instrumented, Instrument, debug};
+use tracing::{info, info_span, instrument::Instrumented, Instrument};
 
-use tide::Request;
 use tide::prelude::*;
-use hyperlane_core::accumulator::incremental::IncrementalMerkle;
 use hyperlane_ethereum::{SingletonSigner, SingletonSignerHandle};
 
 
@@ -42,20 +40,19 @@ use crate::{api, merkle_tree::builder::MerkleTreeBuilder, msg::{
     processor::{MessageProcessor, MessageProcessorMetrics},
     serial_submitter::{SerialSubmitter, SerialSubmitterMetrics},
 }, settings::{matching_list::MatchingList, APIServerSettings}};
-use crate::msg::pending_message::PendingMessage;
 
 
 
 #[derive(Clone, Debug)]
 pub struct State {
-    origin_chains: HashMap<HyperlaneDomain, ChainConf>,
-    destination_chains: HashMap<HyperlaneDomain, ChainConf>,
-    prover_syncs: HashMap<HyperlaneDomain, Arc<RwLock<MerkleTreeBuilder>>>,
-    dbs: HashMap<HyperlaneDomain, HyperlaneRocksDB>,
-    whitelist: Arc<MatchingList>,
-    blacklist: Arc<MatchingList>,
-    msg_ctxs: HashMap<ContextKey, Arc<MessageContext>>,
-    signer: SingletonSignerHandle,
+    pub origin_chains: HashMap<HyperlaneDomain, ChainConf>,
+    pub destination_chains: HashMap<HyperlaneDomain, ChainConf>,
+    pub prover_syncs: HashMap<HyperlaneDomain, Arc<RwLock<MerkleTreeBuilder>>>,
+    pub dbs: HashMap<HyperlaneDomain, HyperlaneRocksDB>,
+    pub whitelist: Arc<MatchingList>,
+    pub blacklist: Arc<MatchingList>,
+    pub msg_ctxs: HashMap<ContextKey, Arc<MessageContext>>,
+    pub signer: SingletonSignerHandle,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -375,7 +372,7 @@ impl BaseAgent for APIServer {
             tasks.push(self.run_merkle_tree_processor(origin_domain));
         }
 
-        tasks.push(self.run_tide_server());
+        tasks.push(self.run_tide_server().await);
 
         run_all(tasks)
     }
@@ -528,7 +525,7 @@ impl APIServer {
             dbs: self.dbs.clone(),
             whitelist: self.whitelist.clone(),
             blacklist: self.blacklist.clone(),
-            msg_ctxs: self.msg_ctxs.clones(),
+            msg_ctxs: self.msg_ctxs.clone(),
             signer: self.signer.clone(),
         };
 

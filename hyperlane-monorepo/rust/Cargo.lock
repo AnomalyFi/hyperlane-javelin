@@ -297,6 +297,7 @@ checksum = "a4668cab20f66d8d020e1fbc0ebe47217433c1b6c8f2040faf858554e394ace6"
 name = "apiserver"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-std",
  "async-trait",
  "config",
@@ -4846,6 +4847,7 @@ dependencies = [
  "async-trait",
  "auto_impl 1.1.0",
  "bigdecimal 0.4.2",
+ "bincode",
  "borsh 0.9.3",
  "bs58 0.5.0",
  "bytes",
@@ -4866,6 +4868,7 @@ dependencies = [
  "num-traits",
  "primitive-types",
  "serde",
+ "serde_derive",
  "serde_json",
  "sha3 0.10.8",
  "solana-sdk",

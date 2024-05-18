@@ -1,5 +1,8 @@
 use sha3::{digest::Update, Digest, Keccak256};
 use std::fmt::{Debug, Display, Formatter};
+//use bincode::{serialize, deserialize};
+use serde::{Deserialize, Serialize};
+
 
 use crate::utils::{fmt_address_for_domain, fmt_domain};
 use crate::{Decode, Encode, HyperlaneProtocolError, Sequenced, H256};
@@ -21,7 +24,7 @@ impl From<&HyperlaneMessage> for RawHyperlaneMessage {
 }
 
 /// A full Hyperlane message between chains
-#[derive(Clone, Eq, PartialEq, Hash)]
+#[derive(Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct HyperlaneMessage {
     /// 1   Hyperlane version number
     pub version: u8,
@@ -174,4 +177,13 @@ impl HyperlaneMessage {
     pub fn id(&self) -> H256 {
         H256::from_slice(Keccak256::new().chain(self.to_vec()).finalize().as_slice())
     }
+
+    // pub fn to_bytes(&self) -> Vec<u8> {
+    //     serialize(self).expect("Serialization failed")
+    // }
+    //
+    // pub fn from_bytes(bytes: &[u8]) -> Self {
+    //     deserialize(bytes).expect("Deserialization failed")
+    // }
 }
+
