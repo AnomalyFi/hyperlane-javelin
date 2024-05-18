@@ -4,7 +4,6 @@ use tide::{Request, Response, Body};
 use tracing::{debug, info, error};
 use hyperlane_core::{Checkpoint, CheckpointWithMessageId, MultisigSignedCheckpoint, HyperlaneSignerExt};
 use crate::apiserver::{State, ValidityRequest, ValidityResponse};
-use crate::merkle_tree::builder::MerkleTreeBuilderError;
 use crate::msg::pending_message::PendingMessage;
 use crate::msg::metadata::multisig::{MetadataToken, MultisigMetadata};
 
@@ -78,7 +77,7 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         .await
         .ingest_message_id(message.id())
         .await
-        .map_err(Report::from)?;
+        .map_err(Report::from);
 
     let tree = prover.read().await.incremental;
 
@@ -104,7 +103,7 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         .await
         .get_proof(tree.index(), tree.index())
         .context(CTX)
-        .map_err(Report::from)?;
+        .map_err(Report::from);
 
     let mcm = MultisigSignedCheckpoint {
         checkpoint: cm,
@@ -128,22 +127,12 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         .delivered(pending_msg.message.id())
         .await
         .context("checking message delivery status")
-        .map_err(Report::from)?;
+        .map_err(Report::from);
 
-    match is_already_delivered {
-        Ok(true) => {
-            debug!("Message has already been delivered, marking as submitted.");
-
-            let res = Response::new(404);
-            return Ok(res);
-        }
-        Ok(false) => {
-            // Continue with the rest of your logic if not delivered
-        }
-        Err(e) => {
-            error!("Error checking delivery status: {:?}", e);
-            return Err(e.into()); // Propagate the error
-        }
+    if is_already_delivered {
+        debug!("Message has already been delivered, marking as submitted.");
+        let res = Response::new(404);
+        return Ok(res)
     }
 
     let provider = pending_msg.ctx.destination_mailbox.provider();
