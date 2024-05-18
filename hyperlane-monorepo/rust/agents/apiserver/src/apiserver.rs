@@ -43,8 +43,7 @@ use crate::{api, merkle_tree::builder::MerkleTreeBuilder, msg::{
 
 
 
-//#[derive(Clone, Debug)]
-#[derive(AsRef)]
+#[derive(Clone, Debug)]
 pub struct State {
     origin_chains: HashMap<HyperlaneDomain, ChainConf>,
     destination_chains: HashMap<HyperlaneDomain, ChainConf>,
