@@ -10,6 +10,7 @@ use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 #[cfg(feature = "strum")]
 use strum::{EnumIter, EnumString, IntoStaticStr};
+use serde::{Serialize, Deserialize};
 
 use crate::{utils::many_to_one, HyperlaneProtocolError, IndexMode, H160, H256};
 
@@ -39,7 +40,7 @@ impl<'a> std::fmt::Display for ContractLocator<'a> {
 }
 
 /// All domains supported by Hyperlane.
-#[derive(FromPrimitive, PartialEq, Eq, Debug, Clone, Copy, Hash)]
+#[derive(FromPrimitive, PartialEq, Eq, Debug, Clone, Copy, Hash, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "strum",
     derive(strum::Display, EnumString, IntoStaticStr, EnumIter)
@@ -112,7 +113,7 @@ pub enum KnownHyperlaneDomain {
     CosmosTest99991 = 99991,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum HyperlaneDomain {
     Known(KnownHyperlaneDomain),
     Unknown {
@@ -136,7 +137,7 @@ impl HyperlaneDomain {
 }
 
 /// Types of Hyperlane domains.
-#[derive(FromPrimitive, Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(FromPrimitive, Copy, Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "strum",
     derive(strum::Display, EnumString, IntoStaticStr, EnumIter)
@@ -157,7 +158,7 @@ pub enum HyperlaneDomainType {
 }
 
 /// A selector for which base library should handle this domain.
-#[derive(FromPrimitive, Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(FromPrimitive, Copy, Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "strum",
     derive(strum::Display, EnumString, IntoStaticStr, EnumIter)

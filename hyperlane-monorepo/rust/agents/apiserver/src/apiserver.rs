@@ -15,7 +15,7 @@ use hyperlane_base::{
     BaseAgent, ContractSyncMetrics, CoreMetrics, HyperlaneAgentCore, SequencedDataContractSync,
     WatermarkContractSync,
 };
-use hyperlane_core::{metrics::agent::METRICS_SCRAPE_INTERVAL, HyperlaneDomain, HyperlaneMessage, InterchainGasPayment, MerkleTreeInsertion, U256, Checkpoint};
+use hyperlane_core::{metrics::agent::METRICS_SCRAPE_INTERVAL, HyperlaneDomain, HyperlaneMessage, InterchainGasPayment, MerkleTreeInsertion, U256};
 use tokio::{
     sync::{
         mpsc::{self, UnboundedReceiver, UnboundedSender},
@@ -43,7 +43,8 @@ use crate::{api, merkle_tree::builder::MerkleTreeBuilder, msg::{
 
 
 
-#[derive(Clone, Debug)]
+//#[derive(Clone, Debug)]
+#[derive(AsRef)]
 pub struct State {
     origin_chains: HashMap<HyperlaneDomain, ChainConf>,
     destination_chains: HashMap<HyperlaneDomain, ChainConf>,

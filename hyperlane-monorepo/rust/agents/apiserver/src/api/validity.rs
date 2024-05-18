@@ -1,6 +1,5 @@
 use ethers::abi::Token;
-use eyre::{Report, Result};
-use anyhow::Context;
+use eyre::{Context, Report, Result};
 
 use tide::{Request, Response, Body};
 use tracing::{debug, info, error};
@@ -80,7 +79,8 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         .await
         .ingest_message_id(message.id())
         .await
-        .map_err(Report::from);
+        .map_err(Report::from).expect("TODO: panic message");
+
 
     let tree = prover.read().await.incremental;
 
@@ -105,7 +105,8 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         .read()
         .await
         .get_proof(tree.index(), tree.index())
-        .context(CTX)?;
+        .context(CTX)
+        .map_err(Report::from).expect("TODO: panic message");
 
 
     let mcm = MultisigSignedCheckpoint {
@@ -130,7 +131,7 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         .delivered(pending_msg.message.id())
         .await
         .context("checking message delivery status")
-        .map_err(Report::from);
+        .map_err(Report::from).expect("TODO: panic message");
 
     if is_already_delivered {
         debug!("Message has already been delivered, marking as submitted.");
@@ -141,9 +142,9 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
     let provider = pending_msg.ctx.destination_mailbox.provider();
 
     // We cannot deliver to an address that is not a contract so check and drop if it isn't.
-    let is_contract = provider.is_contract(&pending_msg.message.recipient).await.context("checking if message recipient is a contract")?;
+    let is_contract = provider.is_contract(&pending_msg.message.recipient).await.context("checking if message recipient is a contract").map_err(Report::from).expect("TODO: panic message");
 
-    if (!is_contract) {
+    if !is_contract {
         info!(
             recipient=?pending_msg.message.recipient,
             "Dropping message because recipient is not a contract"
@@ -197,21 +198,29 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         MetadataToken::CheckpointIndex,
         MetadataToken::Signatures,
     ];
-    let metas: eyre::Result<Vec<Vec<u8>>> = token_layout.iter().map(build_token).collect();
+    let metas: Vec<Vec<u8>> = token_layout
+        .iter()
+        .map(build_token)
+        .collect::<eyre::Result<Vec<Vec<u8>>, _>>()
+        .map_err(Report::from)
+        .expect("TODO: panic message");
 
-    let meta: Vec<u8> = metas?.into_iter().flatten().collect();
+    //let metas: eyre::Result<Vec<Vec<u8>>> = token_layout.iter().map(build_token).collect().map_err(Report::from).expect("TODO: panic message");
+
+    let meta: Vec<u8> = metas.into_iter().flatten().collect();
 
     let tx_cost_estimate = pending_msg.ctx
         .destination_mailbox
         .process_estimate_costs(&pending_msg.message, &meta)
         .await
-        .context("estimating costs for process call")?;
+        .context("estimating costs for process call")
+        .map_err(Report::from).expect("TODO: panic message");
 
     let Some(gas_limit) = pending_msg.ctx
         .origin_gas_payment_enforcer
         .message_meets_gas_payment_requirement(&pending_msg.message, &tx_cost_estimate)
         .await
-        .context("checking if message meets gas payment requirement")? else {
+        .context("checking if message meets gas payment requirement").map_err(Report::from).expect("TODO: panic message") else {
         info!(?tx_cost_estimate, "Gas payment requirement not met yet");
         let res = Response::new(404);
         return Ok(res);
