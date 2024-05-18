@@ -372,7 +372,7 @@ impl BaseAgent for APIServer {
             tasks.push(self.run_merkle_tree_processor(origin_domain));
         }
 
-        tasks.push(self.run_tide_server());
+        tasks.push(self.run_tide_server().await);
 
         run_all(tasks)
     }
