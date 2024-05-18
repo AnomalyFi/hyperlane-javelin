@@ -1,0 +1,22 @@
+version: '3.4'
+
+volumes:
+  validator_data:
+
+services:
+  validator:
+    build:
+      context: ./hyperlane-monorepo/rust
+      dockerfile: Dockerfile
+    volumes:
+      - "validator_data:/data"
+      - "$CONFIG_FILES:/agent-config.json"
+    command: >
+      /app/validator 
+       --db /data/db
+        --originChainName $CHAIN_NAME
+        --checkpointSyncer.type localStorage
+        --checkpointSyncer.path /data/signatures
+        --validator.key $PRIV_KEY
+    environment:
+      - CONFIG_FILES=/agent-config.json
