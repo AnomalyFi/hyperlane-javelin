@@ -1,8 +1,10 @@
 use ethers::abi::Token;
-use eyre::{Context, Report};
+use eyre::{Context, Report, Result};
+
 use tide::{Request, Response, Body};
 use tracing::{debug, info, error};
 use hyperlane_core::{Checkpoint, CheckpointWithMessageId, MultisigSignedCheckpoint, HyperlaneSignerExt};
+use hyperlane_core::accumulator::merkle::Proof;
 use crate::apiserver::{State, ValidityRequest, ValidityResponse};
 use crate::msg::pending_message::PendingMessage;
 use crate::msg::metadata::multisig::{MetadataToken, MultisigMetadata};
@@ -102,8 +104,7 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         .read()
         .await
         .get_proof(tree.index(), tree.index())
-        .context(CTX)
-        .map_err(Report::from);
+        .context(CTX)?;
 
     let mcm = MultisigSignedCheckpoint {
         checkpoint: cm,
@@ -229,8 +230,10 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         }
     }
 
+
+
     let response_body = ValidityResponse {
-        message: pending_msg,
+        message: pending_msg.message,
         metadata: meta,
         gas_limit,
     };
@@ -239,3 +242,4 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
     res.set_body(Body::from_json(&response_body)?);
     Ok(res)
 }
+
