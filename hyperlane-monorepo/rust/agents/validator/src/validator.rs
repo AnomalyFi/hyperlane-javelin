@@ -126,31 +126,33 @@ impl BaseAgent for Validator {
         // announce the validator after spawning the signer task
         self.announce().await.expect("Failed to announce validator");
 
-        let reorg_period = NonZeroU64::new(self.reorg_period);
-
-        // Ensure that the merkle tree hook has count > 0 before we begin indexing
-        // messages or submitting checkpoints.
-        loop {
-            match self.merkle_tree_hook.count(reorg_period).await {
-                Ok(0) => {
-                    info!("Waiting for first message in merkle tree hook");
-                    sleep(self.interval).await;
-                }
-                Ok(_) => {
-                    tasks.push(self.run_merkle_tree_hook_sync().await);
-                    for checkpoint_sync_task in self.run_checkpoint_submitters().await {
-                        tasks.push(checkpoint_sync_task);
-                    }
-                    break;
-                }
-                _ => {
-                    // Future that immediately resolves
-                    return tokio::spawn(ready(Ok(()))).instrument(info_span!("Validator"));
-                }
-            }
-        }
-
+        // return tokio::spawn(ready(Ok(()))).instrument(info_span!("Validator"));
         run_all(tasks)
+
+        // commented out as we only need to announce the validator
+        // let reorg_period = NonZeroU64::new(self.reorg_period);
+
+        // // Ensure that the merkle tree hook has count > 0 before we begin indexing
+        // // messages or submitting checkpoints.
+        // loop {
+        //     match self.merkle_tree_hook.count(reorg_period).await {
+        //         Ok(0) => {
+        //             info!("Waiting for first message in merkle tree hook");
+        //             sleep(self.interval).await;
+        //         }
+        //         Ok(_) => {
+        //             tasks.push(self.run_merkle_tree_hook_sync().await);
+        //             for checkpoint_sync_task in self.run_checkpoint_submitters().await {
+        //                 tasks.push(checkpoint_sync_task);
+        //             }
+        //             break;
+        //         }
+        //         _ => {
+        //             // Future that immediately resolves
+        //             return tokio::spawn(ready(Ok(()))).instrument(info_span!("Validator"));
+        //         }
+        //     }
+        // }
     }
 }
 
