@@ -126,7 +126,6 @@ impl BaseAgent for Validator {
         // announce the validator after spawning the signer task
         self.announce().await.expect("Failed to announce validator");
 
-        // return tokio::spawn(ready(Ok(()))).instrument(info_span!("Validator"));
         run_all(tasks)
 
         // commented out as we only need to announce the validator

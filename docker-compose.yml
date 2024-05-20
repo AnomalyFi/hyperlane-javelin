@@ -8,6 +8,9 @@ volumes:
 
 services:
   apiserver:
+    depends_on:
+      validator:
+        condition: service_completed_successfully
     build:
       context: ./hyperlane-monorepo/rust
       dockerfile: Dockerfile
@@ -15,7 +18,7 @@ services:
       - "validator_data:/data"
       - "$CONFIG_FILES:/agent-config.json"
     ports:
-      - "$API_PORT:9090"
+      - "$API_PORT:8080"
     command: >
       /app/apiserver 
       --db /data/db
