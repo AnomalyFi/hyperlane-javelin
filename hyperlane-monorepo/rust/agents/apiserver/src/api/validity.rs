@@ -3,14 +3,37 @@ use eyre::{Context, Report, Result};
 
 use tide::{Request, Response, Body};
 use tracing::{debug, info, error};
-use hyperlane_core::{Checkpoint, CheckpointWithMessageId, MultisigSignedCheckpoint, HyperlaneSignerExt};
+use hyperlane_core::{Checkpoint, CheckpointWithMessageId, MultisigSignedCheckpoint, HyperlaneSignerExt, HyperlaneDomain, HyperlaneMessage};
 use hyperlane_core::accumulator::merkle::Proof;
-use crate::apiserver::{State, ValidityRequest, ValidityResponse};
+use crate::api::api_msgs::{new_validity_response_error, ValidityBatchRequest, ValidityBatchResponse, ValidityRequest, ValidityResponse};
+use crate::apiserver::State;
 use crate::msg::pending_message::PendingMessage;
 use crate::msg::metadata::multisig::{MetadataToken, MultisigMetadata};
 
-pub async fn check_validity(mut req: Request<State>) -> tide::Result {
-    let ValidityRequest { domain, message } = req.body_json().await?;
+pub async fn check_validity_request(mut req: Request<State>) -> tide::Result {
+    let validity_request: ValidityRequest = req.body_json().await?;
+    let state = req.state().clone();
+
+    match check_validity(&validity_request, &state).await {
+        Ok(validity_resp) => {
+            let mut res = Response::new(200);
+            res.set_body(Body::from_json(&validity_resp)?);
+            Ok(res)
+        }
+        Err(e) => {
+            let mut res = Response::new(404);
+            let response_body = new_validity_response_error(e);
+            res.set_body(Body::from_json(&response_body)?);
+            Ok(res)
+        }
+    }
+}
+
+pub async fn check_validity(validity_request: &ValidityRequest, state: &State) -> Result<ValidityResponse, String> {
+    let ValidityRequest {
+        domain,
+        message,
+    } = validity_request;
 
     let State {
         origin_chains,
@@ -22,17 +45,19 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         msg_ctxs,
         signer,
         ..
-    } = req.state().clone();
+    } = state;
 
     // Get the prover from the prover_syncs map based on the domain.
-    let prover = prover_syncs.get(&domain).cloned().ok_or_else(|| tide::Error::from_str(404, "Prover not found"))?;
+    let prover = prover_syncs.get(&domain).cloned().ok_or_else(|| "Prover not found")?;
 
     // Get the database from the dbs map based on the domain.
-    let db_clone = dbs.get(&domain).ok_or_else(|| tide::Error::from_str(404, "Database not found"))?.clone();
+    let db_clone = dbs.get(&domain)
+        .ok_or_else(|| "Database not found")?
+        .clone();
 
     let destination_ctxs = destination_chains
         .keys()
-        .filter(|&destination| destination != &domain)
+        .filter(|&destination| destination != domain)
         .map(|destination| {
             (
                 destination.id(),
@@ -49,26 +74,23 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
 
     // Skip if not whitelisted.
     if !whitelist.msg_matches(&message, true) {
-        debug!(?message, whitelist=?whitelist, "Message not whitelisted, skipping");
-
-        let res = Response::new(404);
-        return Ok(res);
+        let err_msg = "Message not whitelisted, skipping";
+        debug!(?message, whitelist=?whitelist, err_msg);
+        return Err(err_msg.to_string());
     }
 
     // Skip if the message is blacklisted.
     if blacklist.msg_matches(&message, false) {
-        debug!(?message, blacklist=?blacklist, "Message blacklisted, skipping");
-
-        let res = Response::new(404);
-        return Ok(res);
+        let err_msg = "Message blacklisted, skipping";
+        debug!(?message, blacklist=?blacklist, err_msg);
+        return Err(err_msg.to_string());
     }
 
     // Skip if the message is intended for this origin.
     if destination == db_clone.domain().id() {
-        debug!(?message, "Message destined for self, skipping");
-
-        let res = Response::new(404);
-        return Ok(res);
+        let err_msg = "Message destined for self, skipping";
+        debug!(?message, err_msg);
+        return Err(err_msg.to_string());
     }
 
     debug!(%message, "Sending message to submitter");
@@ -98,7 +120,7 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         message_id: message.id(),
     };
 
-    let signed_check = signer.sign(cm).await?;
+    let signed_check = signer.sign(cm).await.or_else(|err| Err(err.to_string()))?;
 
     const CTX: &str = "When fetching message proof";
     let proof = prover
@@ -120,9 +142,9 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         Some(proof),
     );
 
-    // Finally, build the submit arg and dispatch it to the submitter.
+    // Finally, build submit arg and dispatch it to the submitter.
     let pending_msg = PendingMessage::from_persisted_retries(
-        message,
+        message.clone(),
         destination_ctxs[&destination].clone(),
     );
 
@@ -134,9 +156,9 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         .map_err(Report::from).expect("TODO: panic message");
 
     if is_already_delivered {
-        debug!("Message has already been delivered, marking as submitted.");
-        let res = Response::new(404);
-        return Ok(res)
+        let err_msg = "Message has already been delivered, marking as submitted.";
+        debug!(err_msg);
+        return Err(err_msg.to_string());
     }
 
     let provider = pending_msg.ctx.destination_mailbox.provider();
@@ -145,12 +167,12 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
     let is_contract = provider.is_contract(&pending_msg.message.recipient).await.context("checking if message recipient is a contract").map_err(Report::from).expect("TODO: panic message");
 
     if !is_contract {
+        let err_msg = "Dropping message because recipient is not a contract";
         info!(
             recipient=?pending_msg.message.recipient,
-            "Dropping message because recipient is not a contract"
+            err_msg
         );
-        let res = Response::new(404);
-        return Ok(res);
+        return Err(err_msg.to_string());
     }
 
     let build_token = |token: &MetadataToken| -> eyre::Result<Vec<u8>> {
@@ -220,11 +242,13 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         .origin_gas_payment_enforcer
         .message_meets_gas_payment_requirement(&pending_msg.message, &tx_cost_estimate)
         .await
-        .context("checking if message meets gas payment requirement").map_err(Report::from).expect("TODO: panic message") else {
-        info!(?tx_cost_estimate, "Gas payment requirement not met yet");
-        let res = Response::new(404);
-        return Ok(res);
-    };
+        .context("checking if message meets gas payment requirement")
+        .map_err(Report::from)
+        .expect("TODO: panic message") else {
+            let err_msg = "Gas payment requirement not met yet";
+            info!(?tx_cost_estimate, err_msg);
+            return Err(err_msg.to_string());
+        };
 
     debug!(
         ?gas_limit,
@@ -235,22 +259,41 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
 
     if let Some(max_limit) = pending_msg.ctx.transaction_gas_limit {
         if gas_limit > max_limit {
-            info!("Message delivery estimated gas exceeds max gas limit");
-            let res = Response::new(404);
-            return Ok(res);
+            let err_msg = "Message delivery estimated gas exceeds max gas limit";
+            info!(err_msg);
+            return Err(err_msg.to_string());
         }
     }
-
-
 
     let response_body = ValidityResponse {
         message: pending_msg.message,
         metadata: meta,
         gas_limit,
+        error: None,
     };
-
-    let mut res = Response::new(200);
-    res.set_body(Body::from_json(&response_body)?);
-    Ok(res)
+    Ok(response_body)
 }
 
+pub async fn batch_check_validity_request(mut req: Request<State>) -> tide::Result {
+    let validity_batch_request : ValidityBatchRequest = req.body_json().await?;
+    let state = req.state().clone();
+
+    let batch_response = batch_check_validity(&validity_batch_request, &state).await;
+
+    let mut res = Response::new(200);
+    res.set_body(Body::from_json(&batch_response)?);
+    Ok(res)
+}
+pub async fn batch_check_validity(validity_batch_request: &ValidityBatchRequest, state: &State) -> ValidityBatchResponse {
+    let mut response_body = ValidityBatchResponse {
+        responses: Vec::new()
+    };
+
+    for request in &validity_batch_request.requests {
+        let validity_response = check_validity(&request, &state).await.unwrap_or_else(|e| new_validity_response_error(e));
+
+        response_body.responses.push(validity_response)
+    }
+
+    response_body
+}

@@ -26,6 +26,7 @@ use tokio::{
 use tracing::{info, info_span, instrument::Instrumented, Instrument};
 
 use tide::prelude::*;
+use api::validity;
 use hyperlane_ethereum::{SingletonSigner, SingletonSignerHandle};
 
 
@@ -53,21 +54,6 @@ pub struct State {
     pub blacklist: Arc<MatchingList>,
     pub msg_ctxs: HashMap<ContextKey, Arc<MessageContext>>,
     pub signer: SingletonSignerHandle,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct ValidityRequest {
-    pub domain: HyperlaneDomain,
-    pub message: HyperlaneMessage,
-    //insertion: MerkleTreeInsertion,
-}
-
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct ValidityResponse {
-    pub message: HyperlaneMessage,
-    pub metadata: Vec<u8>,
-    pub gas_limit: U256,
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
@@ -359,7 +345,7 @@ impl BaseAgent for APIServer {
         }
 
         //TODO Step 1 this is where the messages get synced to the database
-        for (origin_domain, origin_conf) in &self.origin_chains {
+        for (origin_domain, _) in &self.origin_chains {
             tasks.push(self.run_message_sync(origin_domain).await);
             tasks.push(self.run_interchain_gas_payment_sync(origin_domain).await);
             tasks.push(self.run_merkle_tree_hook_syncs(origin_domain).await);
@@ -367,7 +353,7 @@ impl BaseAgent for APIServer {
 
         //TODO Step 2 this is where the messages get processed from the initial sync
         // each message process attempts to send messages from a chain
-        for (origin_domain, origin_conf) in &self.origin_chains {
+        for (origin_domain, _) in &self.origin_chains {
             tasks.push(self.run_message_processor(origin_domain, send_channels.clone()));
             tasks.push(self.run_merkle_tree_processor(origin_domain));
         }
@@ -531,7 +517,8 @@ impl APIServer {
 
         let mut app = tide::with_state(state);
 
-        app.at("/check/validity").post(api::validity::check_validity);
+        app.at("/check/validity").post(validity::check_validity_request);
+        app.at("/check/batch_validity").post(validity::batch_check_validity_request);
         // app.listen("127.0.0.1:8080").await?;
         // Define your Tide routes and handlers here
         app.at("/").get(|_| async { Ok("Hello, Tide!") });
@@ -548,12 +535,6 @@ impl APIServer {
         })
         .instrument(server_span)
     }
-
-
-
-
-
-
 }
 
 #[cfg(test)]
