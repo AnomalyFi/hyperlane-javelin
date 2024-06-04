@@ -56,6 +56,7 @@ RUN chmod 777 /app &&  \
     chown -R 1000 /data/
 
 
+EXPOSE 8080
 USER 1000
 ENTRYPOINT ["tini", "--"]
 CMD ["./validator"]

@@ -531,8 +531,6 @@ impl APIServer {
 
         let mut app = tide::with_state(state);
 
-
-
         app.at("/check/validity").post(api::validity::check_validity);
         // app.listen("127.0.0.1:8080").await?;
         // Define your Tide routes and handlers here
@@ -540,6 +538,8 @@ impl APIServer {
 
         let server_span = info_span!("TideServer", address = "127.0.0.1:8080");
         let server = app.listen("127.0.0.1:8080");
+
+        info!("api server is on at :8080");
 
         tokio::spawn(async move {
             let res = server.await;
