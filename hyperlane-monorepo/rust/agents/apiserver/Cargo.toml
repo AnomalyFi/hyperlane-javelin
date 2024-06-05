@@ -35,7 +35,7 @@ tracing-futures.workspace = true
 tracing.workspace = true
 tide = "0.16.0"
 tide-tracing.worksapce = true
-async-std = { version = "1.8.0", features = ["attributes"] }
+async-std = { version = "1.8.0", features = ["attributes", "tokio1"] }
 
 hyperlane-core = { path = "../../hyperlane-core", features = ["agent"] }
 hyperlane-base = { path = "../../hyperlane-base" }

@@ -215,6 +215,7 @@ impl BaseAgent for APIServer {
             .origin_chains
             .iter()
             .map(|origin| {
+                info!("setting up prover {}", origin.id());
                 (
                     origin.clone(),
                     Arc::new(RwLock::new(MerkleTreeBuilder::new())),

@@ -11,9 +11,11 @@ use crate::apiserver::{State, ValidityRequest, ValidityResponse};
 use crate::msg::pending_message::PendingMessage;
 use crate::msg::metadata::multisig::{MetadataToken, MultisigMetadata};
 
-#[tracing::instrument]
+#[tracing::instrument(skip(req))]
 pub async fn check_validity(mut req: Request<State>) -> tide::Result {
+    info!("0");
     let ValidityRequest { domain, message } = req.body_json().await?;
+    info!("1");
 
     let State {
         origin_chains,
@@ -28,10 +30,12 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
     } = req.state().clone();
 
     // Get the prover from the prover_syncs map based on the domain.
-    let prover = prover_syncs.get(&domain).cloned().ok_or_else(|| tide::Error::from_str(404, "Prover not found"))?;
+    let prover = prover_syncs.get(&domain).cloned().ok_or_else(|| tide::Error::from_str(403, "Prover not found"))?;
+    info!("2");
 
     // Get the database from the dbs map based on the domain.
-    let db_clone = dbs.get(&domain).ok_or_else(|| tide::Error::from_str(404, "Database not found"))?.clone();
+    let db_clone = dbs.get(&domain).ok_or_else(|| tide::Error::from_str(402, "Database not found"))?.clone();
+    info!("3");
 
     let destination_ctxs = destination_chains
         .keys()
@@ -47,6 +51,7 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
             )
         })
         .collect::<std::collections::HashMap<_, _>>();
+    info!("destination ctxs: {:?}", destination_ctxs);
 
     let destination = message.destination;
 
@@ -60,6 +65,7 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         })).content_type(mime::JSON).build();
         return Ok(res);
     }
+    info!("4");
 
     // Skip if the message is blacklisted.
     if blacklist.msg_matches(&message, false) {
@@ -71,6 +77,7 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         })).content_type(mime::JSON).build();
         return Ok(res);
     }
+    info!("5");
 
     // Skip if the message is intended for this origin.
     if destination == db_clone.domain().id() {
@@ -82,6 +89,8 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         })).content_type(mime::JSON).build();
         return Ok(res);
     }
+    info!("6");
+
 
     debug!(%message, "Sending message to submitter");
 
@@ -93,10 +102,13 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         .await
         .map_err(Report::from).expect("TODO: panic message");
 
+    info!("7");
 
     let tree = prover.read().await.incremental;
 
     let origin_conf = origin_chains.get(db_clone.domain()).unwrap().clone();
+    info!("8");
+    info!("origin_conf: {:?}", origin_conf);
 
     let c = Checkpoint {
         root: tree.root(),
@@ -104,13 +116,18 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         merkle_tree_hook_address: origin_conf.addresses.merkle_tree_hook,
         mailbox_domain: domain.id(),
     };
+    info!("ckp: {:?}", c);
 
     let cm = CheckpointWithMessageId {
         checkpoint: c,
         message_id: message.id(),
     };
 
+    info!("ckp with mid: {:?}", cm);
+
     let signed_check = signer.sign(cm).await?;
+    info!("9");
+    info!("signed check: {:?}", signed_check);
 
     const CTX: &str = "When fetching message proof";
     let proof = prover
@@ -119,12 +136,15 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         .get_proof(tree.index(), tree.index())
         .context(CTX)
         .map_err(Report::from).expect("TODO: panic message");
+    info!("10");
+    info!("proof: {:?}", proof);
 
 
     let mcm = MultisigSignedCheckpoint {
         checkpoint: cm,
         signatures: vec![signed_check.signature],
     };
+    info!("mcm: {:?}", mcm);
 
     let metadata = MultisigMetadata::new(
         mcm,
@@ -138,12 +158,20 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         destination_ctxs[&destination].clone(),
     );
 
+    info!("{:?}", pending_msg);
+    info!("destination mailbox: {:?}", pending_msg.ctx.destination_mailbox);
+
+    // TODO: fix this
     let is_already_delivered = pending_msg.ctx
         .destination_mailbox
         .delivered(pending_msg.message.id())
         .await
         .context("checking message delivery status")
-        .map_err(Report::from).expect("TODO: panic message");
+        .map_err(|err| {
+            info!("err: {}", err);
+        }).expect("TODO: panic message");
+
+    info!("11");
 
     if is_already_delivered {
         debug!("Message has already been delivered, marking as submitted.");
@@ -154,10 +182,15 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         return Ok(res)
     }
 
+    info!("12");
+
     let provider = pending_msg.ctx.destination_mailbox.provider();
+    info!("{:?}", provider);
+    info!("12.1");
 
     // We cannot deliver to an address that is not a contract so check and drop if it isn't.
     let is_contract = provider.is_contract(&pending_msg.message.recipient).await.context("checking if message recipient is a contract").map_err(Report::from).expect("TODO: panic message");
+    info!("13");
 
     if !is_contract {
         info!(
@@ -170,6 +203,7 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         })).content_type(mime::JSON).build();
         return Ok(res);
     }
+    info!("14");
 
     let build_token = |token: &MetadataToken| -> eyre::Result<Vec<u8>> {
         match token {
@@ -223,6 +257,7 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         .map_err(Report::from)
         .expect("TODO: panic message");
 
+    info!("15");
     //let metas: eyre::Result<Vec<Vec<u8>>> = token_layout.iter().map(build_token).collect().map_err(Report::from).expect("TODO: panic message");
 
     let meta: Vec<u8> = metas.into_iter().flatten().collect();
@@ -233,6 +268,7 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         .await
         .context("estimating costs for process call")
         .map_err(Report::from).expect("TODO: panic message");
+    info!("16");
 
     let Some(gas_limit) = pending_msg.ctx
         .origin_gas_payment_enforcer
@@ -246,6 +282,7 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         })).content_type(mime::JSON).build();
         return Ok(res);
     };
+    info!("17");
 
     debug!(
         ?gas_limit,
@@ -264,6 +301,7 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
             return Ok(res);
         }
     }
+    info!("18");
 
 
     let response_body = ValidityResponse {
@@ -271,6 +309,7 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         metadata: meta,
         gas_limit,
     };
+    info!("19");
 
     let mut res = Response::new(200);
     res.set_body(Body::from_json(&response_body)?);
