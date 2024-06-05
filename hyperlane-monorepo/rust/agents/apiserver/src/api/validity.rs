@@ -1,6 +1,8 @@
 use ethers::abi::Token;
 use eyre::{Context, Report, Result};
 
+use serde_json::json;
+use tide::http::mime;
 use tide::{Request, Response, Body};
 use tracing::{debug, info, error};
 use hyperlane_core::{Checkpoint, CheckpointWithMessageId, MultisigSignedCheckpoint, HyperlaneSignerExt};
@@ -9,6 +11,7 @@ use crate::apiserver::{State, ValidityRequest, ValidityResponse};
 use crate::msg::pending_message::PendingMessage;
 use crate::msg::metadata::multisig::{MetadataToken, MultisigMetadata};
 
+#[tracing::instrument]
 pub async fn check_validity(mut req: Request<State>) -> tide::Result {
     let ValidityRequest { domain, message } = req.body_json().await?;
 
@@ -51,7 +54,10 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
     if !whitelist.msg_matches(&message, true) {
         debug!(?message, whitelist=?whitelist, "Message not whitelisted, skipping");
 
-        let res = Response::new(404);
+        let res = Response::builder(404).body(json!({
+            "code": 404,
+            "message": "not whitelisted"
+        })).content_type(mime::JSON).build();
         return Ok(res);
     }
 
@@ -59,7 +65,10 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
     if blacklist.msg_matches(&message, false) {
         debug!(?message, blacklist=?blacklist, "Message blacklisted, skipping");
 
-        let res = Response::new(404);
+        let res = Response::builder(404).body(json!({
+            "code": 404,
+            "message": "is blacklisted"
+        })).content_type(mime::JSON).build();
         return Ok(res);
     }
 
@@ -67,7 +76,10 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
     if destination == db_clone.domain().id() {
         debug!(?message, "Message destined for self, skipping");
 
-        let res = Response::new(404);
+        let res = Response::builder(404).body(json!({
+            "code": 404,
+            "message": "destination is origin"
+        })).content_type(mime::JSON).build();
         return Ok(res);
     }
 
@@ -135,7 +147,10 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
 
     if is_already_delivered {
         debug!("Message has already been delivered, marking as submitted.");
-        let res = Response::new(404);
+        let res = Response::builder(404).body(json!({
+            "code": 404,
+            "message": "message already delivered"
+        })).content_type(mime::JSON).build();
         return Ok(res)
     }
 
@@ -149,7 +164,10 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
             recipient=?pending_msg.message.recipient,
             "Dropping message because recipient is not a contract"
         );
-        let res = Response::new(404);
+        let res = Response::builder(404).body(json!({
+            "code": 404,
+            "message": "recipient is not a contract"
+        })).content_type(mime::JSON).build();
         return Ok(res);
     }
 
@@ -222,7 +240,10 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         .await
         .context("checking if message meets gas payment requirement").map_err(Report::from).expect("TODO: panic message") else {
         info!(?tx_cost_estimate, "Gas payment requirement not met yet");
-        let res = Response::new(404);
+        let res = Response::builder(404).body(json!({
+            "code": 404,
+            "message": "gas payment not met yet"
+        })).content_type(mime::JSON).build();
         return Ok(res);
     };
 
@@ -236,11 +257,13 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
     if let Some(max_limit) = pending_msg.ctx.transaction_gas_limit {
         if gas_limit > max_limit {
             info!("Message delivery estimated gas exceeds max gas limit");
-            let res = Response::new(404);
+            let res = Response::builder(404).body(json!({
+                "code": 404,
+                "message": "delivery gas exceeds estimation"
+            })).content_type(mime::JSON).build();
             return Ok(res);
         }
     }
-
 
 
     let response_body = ValidityResponse {
