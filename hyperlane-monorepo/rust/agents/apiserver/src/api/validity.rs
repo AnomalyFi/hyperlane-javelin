@@ -1,4 +1,7 @@
-use ethers::abi::Token;
+use std::ops::Deref;
+
+use async_std::future::pending;
+use ethers::abi::{token, Token};
 use eyre::{Context, Report, Result};
 
 use serde_json::json;
@@ -8,6 +11,7 @@ use tracing::{debug, info, error};
 use hyperlane_core::{Checkpoint, CheckpointWithMessageId, MultisigSignedCheckpoint, HyperlaneSignerExt};
 use hyperlane_core::accumulator::merkle::Proof;
 use crate::apiserver::{State, ValidityRequest, ValidityResponse};
+use crate::msg::metadata::{MessageMetadataBuilder, MetadataBuilder, SubModuleMetadata};
 use crate::msg::pending_message::PendingMessage;
 use crate::msg::metadata::multisig::{MetadataToken, MultisigMetadata};
 
@@ -146,11 +150,20 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
     };
     info!("mcm: {:?}", mcm);
 
-    let metadata = MultisigMetadata::new(
-        mcm,
+    let meta1 = MultisigMetadata::new(
+        mcm.clone(),
         tree.index(),
         Some(proof),
     );
+    // let meta2 = MultisigMetadata::new(mcm, tree.index(), Some(proof));
+
+    let meta1raw = format_metadata("merkle", meta1).unwrap();
+    // let meta2raw = format_metadata("message_id", meta2).unwrap();
+    let sub_meta1 = SubModuleMetadata::new(0, meta1raw);
+    // let sub_meta2 = SubModuleMetadata::new(1, meta2raw);
+    // Note: only one meta is needed as more of it will cause Arithemetic Overflow
+    let metadata = format_aggregation_meta(&mut [sub_meta1, ], 1);
+    
 
     // Finally, build the submit arg and dispatch it to the submitter.
     let pending_msg = PendingMessage::from_persisted_retries(
@@ -205,69 +218,15 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
     }
     info!("14");
 
-    let build_token = |token: &MetadataToken| -> eyre::Result<Vec<u8>> {
-        match token {
-            MetadataToken::CheckpointMerkleRoot => {
-                Ok(metadata.checkpoint.root.to_fixed_bytes().into())
-            }
-            MetadataToken::MessageMerkleLeafIndex => {
-                Ok(metadata.merkle_leaf_index.to_be_bytes().into())
-            }
-            MetadataToken::CheckpointIndex => {
-                Ok(metadata.checkpoint.index.to_be_bytes().into())
-            }
-            MetadataToken::CheckpointMerkleTreeHook => Ok(metadata
-                .checkpoint
-                .merkle_tree_hook_address
-                .to_fixed_bytes()
-                .into()),
-            MetadataToken::MessageId => {
-                Ok(metadata.checkpoint.message_id.to_fixed_bytes().into())
-            }
-            MetadataToken::MerkleProof => {
-                let proof_tokens: Vec<Token> = metadata
-                    .proof
-                    .unwrap()
-                    .path
-                    .iter()
-                    .map(|x| Token::FixedBytes(x.to_fixed_bytes().into()))
-                    .collect();
-                Ok(ethers::abi::encode(&proof_tokens))
-            }
-            MetadataToken::Signatures => Ok(metadata
-                .signatures
-                .iter()
-                .map(|x| x.to_vec())
-                .collect::<Vec<_>>()
-                .concat()),
-        }
-    };
-    let token_layout = vec![
-        MetadataToken::CheckpointMerkleTreeHook,
-        MetadataToken::MessageMerkleLeafIndex,
-        MetadataToken::MessageId,
-        MetadataToken::MerkleProof,
-        MetadataToken::CheckpointIndex,
-        MetadataToken::Signatures,
-    ];
-    let metas: Vec<Vec<u8>> = token_layout
-        .iter()
-        .map(build_token)
-        .collect::<eyre::Result<Vec<Vec<u8>>, _>>()
-        .map_err(Report::from)
-        .expect("TODO: panic message");
-
-    info!("15");
-    //let metas: eyre::Result<Vec<Vec<u8>>> = token_layout.iter().map(build_token).collect().map_err(Report::from).expect("TODO: panic message");
-
-    let meta: Vec<u8> = metas.into_iter().flatten().collect();
-
     let tx_cost_estimate = pending_msg.ctx
         .destination_mailbox
-        .process_estimate_costs(&pending_msg.message, &meta)
+        .process_estimate_costs(&pending_msg.message, &metadata)
         .await
         .context("estimating costs for process call")
-        .map_err(Report::from).expect("TODO: panic message");
+        .map_err(|r| {
+            let err = r.source();
+            info!("error process estimate costs: {:?}", err);
+        }).expect("TODO: panic message");
     info!("16");
 
     let Some(gas_limit) = pending_msg.ctx
@@ -306,7 +265,7 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
 
     let response_body = ValidityResponse {
         message: pending_msg.message,
-        metadata: meta,
+        metadata: metadata,
         gas_limit,
     };
     info!("19");
@@ -316,3 +275,100 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
     Ok(res)
 }
 
+const METADATA_RANGE_SIZE: usize = 4;
+
+fn format_aggregation_meta(metadatas: &mut [SubModuleMetadata], ism_count: usize) -> Vec<u8> {
+    // See test solidity implementation of this fn at:
+    // https://github.com/hyperlane-xyz/hyperlane-monorepo/blob/445da4fb0d8140a08c4b314e3051b7a934b0f968/solidity/test/isms/AggregationIsm.t.sol#L35
+    fn encode_byte_index(i: usize) -> [u8; 4] {
+        (i as u32).to_be_bytes()
+    }
+    let range_tuples_size = METADATA_RANGE_SIZE * 2 * ism_count;
+    //  Format of metadata:
+    //  [????:????] Metadata start/end uint32 ranges, packed as uint64
+    //  [????:????] ISM metadata, packed encoding
+    // Initialize the range tuple part of the buffer, so the actual metadatas can
+    // simply be appended to it
+    let mut buffer = vec![0; range_tuples_size];
+    for SubModuleMetadata { index, metadata } in metadatas.iter_mut() {
+        let range_start = buffer.len();
+        buffer.append(metadata);
+        let range_end = buffer.len();
+
+        // The new tuple starts at the end of the previous ones.
+        // Also see: https://github.com/hyperlane-xyz/hyperlane-monorepo/blob/445da4fb0d8140a08c4b314e3051b7a934b0f968/solidity/contracts/libs/isms/AggregationIsmMetadata.sol#L49
+        let encoded_range_start = METADATA_RANGE_SIZE * 2 * (*index);
+        // Overwrite the 0-initialized buffer
+        buffer.splice(
+            encoded_range_start..(encoded_range_start + METADATA_RANGE_SIZE * 2),
+            [encode_byte_index(range_start), encode_byte_index(range_end)].concat(),
+        );
+    }
+    buffer
+}
+
+fn format_metadata(t: &str, metadata: MultisigMetadata) -> Result<Vec<u8>> {
+    let merkle_token_layout = vec![
+        MetadataToken::CheckpointMerkleTreeHook,
+        MetadataToken::MessageMerkleLeafIndex,
+        MetadataToken::MessageId,
+        MetadataToken::MerkleProof,
+        MetadataToken::CheckpointIndex,
+        MetadataToken::Signatures,
+    ];
+    let message_id_token_layout = vec![
+        MetadataToken::CheckpointMerkleTreeHook,
+        MetadataToken::CheckpointMerkleRoot,
+        MetadataToken::CheckpointIndex,
+        MetadataToken::Signatures,
+    ];
+
+    let token_layout:  &Vec<MetadataToken>;
+    if t == "merkle" {
+        token_layout = &merkle_token_layout;
+    } else if t == "message_id" {
+        token_layout = &message_id_token_layout; 
+    } else {
+        return Err(Report::msg("no supported token layout"))
+    }
+
+    let build_token = |token: &MetadataToken| -> Result<Vec<u8>> {
+        match token {
+            MetadataToken::CheckpointMerkleRoot => {
+                Ok(metadata.checkpoint.root.to_fixed_bytes().into())
+            }
+            MetadataToken::MessageMerkleLeafIndex => {
+                Ok(metadata.merkle_leaf_index.to_be_bytes().into())
+            }
+            MetadataToken::CheckpointIndex => {
+                Ok(metadata.checkpoint.index.to_be_bytes().into())
+            }
+            MetadataToken::CheckpointMerkleTreeHook => Ok(metadata
+                .checkpoint
+                .merkle_tree_hook_address
+                .to_fixed_bytes()
+                .into()),
+            MetadataToken::MessageId => {
+                Ok(metadata.checkpoint.message_id.to_fixed_bytes().into())
+            }
+            MetadataToken::MerkleProof => {
+                let proof_tokens: Vec<Token> = metadata
+                    .proof
+                    .unwrap()
+                    .path
+                    .iter()
+                    .map(|x| Token::FixedBytes(x.to_fixed_bytes().into()))
+                    .collect();
+                Ok(ethers::abi::encode(&proof_tokens))
+            }
+            MetadataToken::Signatures => Ok(metadata
+                .signatures
+                .iter()
+                .map(|x| x.to_vec())
+                .collect::<Vec<_>>()
+                .concat()),
+        }
+    };
+    let metas: Result<Vec<Vec<u8>>> = token_layout.deref().iter().map(build_token).collect();
+    Ok(metas?.into_iter().flatten().collect())
+}
