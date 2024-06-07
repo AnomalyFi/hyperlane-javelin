@@ -33,12 +33,39 @@ pub fn new_validity_response_error(error_msg: String) -> ValidityResponse {
     }
 }
 
+impl ValidityResponse {
+    pub fn is_ok(&self) -> bool {
+       return self.error.is_none();
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ValidityBatchRequest {
     pub requests: Vec<ValidityRequest>,
+}
+
+impl ValidityBatchRequest {
+    pub fn new() -> Self {
+        Self {
+            requests: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ValidityBatchResponse {
     pub responses: Vec<ValidityResponse>,
 }
+
+impl ValidityBatchResponse {
+    pub fn new() -> Self {
+       Self {
+           responses: Vec::new(),
+       }
+    }
+
+    pub fn is_ok(&self) -> bool {
+        self.responses.iter().all(|resp| resp.is_ok() )
+    }
+}
+

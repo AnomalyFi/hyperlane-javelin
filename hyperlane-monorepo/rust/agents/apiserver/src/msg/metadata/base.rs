@@ -58,8 +58,8 @@ pub trait MetadataBuilder: Send + Sync {
 /// TODO: make this generic
 #[derive(Debug)]
 pub struct DefaultIsmCache {
-    value: RwLock<Option<(H256, Instant)>>,
-    mailbox: Arc<dyn Mailbox>,
+    pub(crate) value: RwLock<Option<(H256, Instant)>>,
+    pub(crate) mailbox: Arc<dyn Mailbox>,
 }
 
 impl DefaultIsmCache {
@@ -106,8 +106,8 @@ impl DefaultIsmCache {
 /// Classifies messages into an app context if they have one.
 #[derive(Debug)]
 pub struct AppContextClassifier {
-    default_ism: DefaultIsmCache,
-    app_matching_lists: Vec<(MatchingList, String)>,
+    pub(crate) default_ism: DefaultIsmCache,
+    pub(crate) app_matching_lists: Vec<(MatchingList, String)>,
 }
 
 impl AppContextClassifier {
@@ -256,15 +256,15 @@ impl MessageMetadataBuilder {
 #[allow(clippy::too_many_arguments)]
 #[derive(new)]
 pub struct BaseMetadataBuilder {
-    origin_domain: HyperlaneDomain,
-    destination_chain_setup: ChainConf,
-    origin_prover_sync: Arc<RwLock<MerkleTreeBuilder>>,
-    origin_validator_announce: Arc<dyn ValidatorAnnounce>,
-    allow_local_checkpoint_syncers: bool,
-    metrics: Arc<CoreMetrics>,
-    db: HyperlaneRocksDB,
-    max_depth: u32,
-    app_context_classifier: AppContextClassifier,
+    pub origin_domain: HyperlaneDomain,
+    pub destination_chain_setup: ChainConf,
+    pub origin_prover_sync: Arc<RwLock<MerkleTreeBuilder>>,
+    pub origin_validator_announce: Arc<dyn ValidatorAnnounce>,
+    pub allow_local_checkpoint_syncers: bool,
+    pub metrics: Arc<CoreMetrics>,
+    pub db: HyperlaneRocksDB,
+    pub max_depth: u32,
+    pub app_context_classifier: AppContextClassifier,
 }
 
 impl Debug for BaseMetadataBuilder {

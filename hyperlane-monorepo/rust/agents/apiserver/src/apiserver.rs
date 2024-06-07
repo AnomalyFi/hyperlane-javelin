@@ -25,11 +25,8 @@ use tokio::{
 };
 use tracing::{info, info_span, instrument::Instrumented, Instrument};
 
-use tide::prelude::*;
 use api::validity;
 use hyperlane_ethereum::{SingletonSigner, SingletonSignerHandle};
-
-
 
 use crate::merkle_tree::processor::{MerkleTreeProcessor, MerkleTreeProcessorMetrics};
 use crate::processor::{Processor, ProcessorExt};
@@ -41,8 +38,6 @@ use crate::{api, merkle_tree::builder::MerkleTreeBuilder, msg::{
     processor::{MessageProcessor, MessageProcessorMetrics},
     serial_submitter::{SerialSubmitter, SerialSubmitterMetrics},
 }, settings::{matching_list::MatchingList, APIServerSettings}};
-
-
 
 #[derive(Clone, Debug)]
 pub struct State {
@@ -130,7 +125,6 @@ impl BaseAgent for APIServer {
             .iter()
             .map(|origin| (origin.clone(), HyperlaneRocksDB::new(origin, db.clone())))
             .collect::<HashMap<_, _>>();
-
 
         // Intentionally using hyperlane_ethereum for the validator's signer
         let (signer_instance, signer) = SingletonSigner::new(settings.validator.build().await?);

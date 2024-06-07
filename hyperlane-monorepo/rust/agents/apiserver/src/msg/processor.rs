@@ -323,7 +323,7 @@ mod test {
     }
 
     fn dummy_domain(domain_id: u32, name: &str) -> HyperlaneDomain {
-        let test_domain = HyperlaneDomain::new_test_domain(name);
+        let test_domain = HyperlaneDomain::new_test_domain(name, 0);
         HyperlaneDomain::Unknown {
             domain_id,
             domain_name: name.to_owned(),
@@ -416,12 +416,12 @@ mod test {
 
             // Expect the HyperlaneDB entry to have been updated, so the `OpQueue` in the submitter
             // can be accurately reconstructed on restart.
-            // If the retry counts were correctly persisted, the backoffs will have the expected value.
+            // If the retry counts were correctly persisted, the backoff will have the expected value.
             pending_messages
                 .iter()
                 .zip(msg_retries_to_set.iter())
                 .for_each(|(pm, expected_retries)| {
-                    // Round up the actuall backoff because it was calculated with an `Instant::now()` that was a fraction of a second ago
+                    // Round up the actual backoff because it was calculated with an `Instant::now()` that was a fraction of a second ago
                     let expected_backoff = PendingMessage::calculate_msg_backoff(*expected_retries)
                         .map(|b| b.as_secs_f32().round());
                     let actual_backoff = pm._next_attempt_after().map(|instant| {

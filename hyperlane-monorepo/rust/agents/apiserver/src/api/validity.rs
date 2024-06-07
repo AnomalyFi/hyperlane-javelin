@@ -2,9 +2,8 @@ use ethers::abi::Token;
 use eyre::{Context, Report, Result};
 
 use tide::{Request, Response, Body};
-use tracing::{debug, info, error};
-use hyperlane_core::{Checkpoint, CheckpointWithMessageId, MultisigSignedCheckpoint, HyperlaneSignerExt, HyperlaneDomain, HyperlaneMessage};
-use hyperlane_core::accumulator::merkle::Proof;
+use tracing::{debug, info};
+use hyperlane_core::{Checkpoint, CheckpointWithMessageId, MultisigSignedCheckpoint, HyperlaneSignerExt};
 use crate::api::api_msgs::{new_validity_response_error, ValidityBatchRequest, ValidityBatchResponse, ValidityRequest, ValidityResponse};
 use crate::apiserver::State;
 use crate::msg::pending_message::PendingMessage;
@@ -130,7 +129,6 @@ pub async fn check_validity(validity_request: &ValidityRequest, state: &State) -
         .context(CTX)
         .map_err(Report::from).expect("TODO: panic message");
 
-
     let mcm = MultisigSignedCheckpoint {
         checkpoint: cm,
         signatures: vec![signed_check.signature],
@@ -175,7 +173,7 @@ pub async fn check_validity(validity_request: &ValidityRequest, state: &State) -
         return Err(err_msg.to_string());
     }
 
-    let build_token = |token: &MetadataToken| -> eyre::Result<Vec<u8>> {
+    let build_token = |token: &MetadataToken| -> Result<Vec<u8>> {
         match token {
             MetadataToken::CheckpointMerkleRoot => {
                 Ok(metadata.checkpoint.root.to_fixed_bytes().into())
@@ -223,11 +221,9 @@ pub async fn check_validity(validity_request: &ValidityRequest, state: &State) -
     let metas: Vec<Vec<u8>> = token_layout
         .iter()
         .map(build_token)
-        .collect::<eyre::Result<Vec<Vec<u8>>, _>>()
+        .collect::<Result<Vec<Vec<u8>>, _>>()
         .map_err(Report::from)
         .expect("TODO: panic message");
-
-    //let metas: eyre::Result<Vec<Vec<u8>>> = token_layout.iter().map(build_token).collect().map_err(Report::from).expect("TODO: panic message");
 
     let meta: Vec<u8> = metas.into_iter().flatten().collect();
 
@@ -285,9 +281,7 @@ pub async fn batch_check_validity_request(mut req: Request<State>) -> tide::Resu
     Ok(res)
 }
 pub async fn batch_check_validity(validity_batch_request: &ValidityBatchRequest, state: &State) -> ValidityBatchResponse {
-    let mut response_body = ValidityBatchResponse {
-        responses: Vec::new()
-    };
+    let mut response_body = ValidityBatchResponse::new();
 
     for request in &validity_batch_request.requests {
         let validity_response = check_validity(&request, &state).await.unwrap_or_else(|e| new_validity_response_error(e));
@@ -296,4 +290,68 @@ pub async fn batch_check_validity(validity_batch_request: &ValidityBatchRequest,
     }
 
     response_body
+}
+
+#[cfg(test)]
+mod test {
+    use hyperlane_base::db::test_utils;
+    use hyperlane_core::HyperlaneMessage;
+    use crate::api::api_msgs::{ValidityBatchRequest, ValidityRequest};
+    use crate::api::validity::{batch_check_validity, check_validity};
+    use crate::testutils::TestFixture;
+
+    #[tokio::test]
+    async fn test_basic_validity() {
+        test_utils::run_test_db(|_db| async move {
+            let test_fixture = TestFixture::new();
+
+            let mut test_message: HyperlaneMessage = Default::default();
+            test_message.origin = test_fixture.get_from_domain_id();
+            test_message.destination = test_fixture.get_to_domain_id();
+
+            let request = ValidityRequest {
+                domain: test_fixture.get_from_domain(),
+                message: test_message,
+            };
+
+            match check_validity(&request, test_fixture.get_state()).await {
+                Ok(_) => {},
+                Err(err_msg) => {
+                    println!("Error occurred: {}", err_msg);
+                    assert!(false);
+                }
+            }
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_batch_validity() {
+        test_utils::run_test_db(|_db| async move {
+            let test_fixture = TestFixture::new();
+
+            let mut validity_batch_request = ValidityBatchRequest::new();
+
+            let num_test_msgs = 3;
+
+            for _i in 0..num_test_msgs {
+                let mut test_message: HyperlaneMessage = Default::default();
+                test_message.origin = test_fixture.get_from_domain_id();
+                test_message.destination = test_fixture.get_to_domain_id();
+
+                let request = ValidityRequest {
+                    domain: test_fixture.get_from_domain(),
+                    message: test_message,
+                };
+
+                validity_batch_request.requests.push(request);
+            }
+
+            let result = batch_check_validity(&validity_batch_request, test_fixture.get_state()).await;
+
+            assert_eq!(num_test_msgs, result.responses.len());
+            assert!(result.is_ok())
+        })
+            .await;
+    }
 }

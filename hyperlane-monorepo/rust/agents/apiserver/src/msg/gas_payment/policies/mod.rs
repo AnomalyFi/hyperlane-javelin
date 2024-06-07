@@ -1,7 +1,7 @@
 mod minimum;
-mod none;
+pub mod none;
 mod on_chain_fee_quoting;
 
-pub(crate) use minimum::GasPaymentPolicyMinimum;
-pub(crate) use none::GasPaymentPolicyNone;
-pub(crate) use on_chain_fee_quoting::GasPaymentPolicyOnChainFeeQuoting;
+pub use minimum::GasPaymentPolicyMinimum;
+pub use none::GasPaymentPolicyNone;
+pub use on_chain_fee_quoting::GasPaymentPolicyOnChainFeeQuoting;

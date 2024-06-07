@@ -126,9 +126,9 @@ pub enum HyperlaneDomain {
 
 #[cfg(any(test, feature = "test-utils"))]
 impl HyperlaneDomain {
-    pub fn new_test_domain(name: &str) -> Self {
+    pub fn new_test_domain(name: &str, id: u32) -> Self {
         Self::Unknown {
-            domain_id: 0,
+            domain_id: id,
             domain_name: name.to_owned(),
             domain_type: HyperlaneDomainType::LocalTestChain,
             domain_protocol: HyperlaneDomainProtocol::Ethereum,

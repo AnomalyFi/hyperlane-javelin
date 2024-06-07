@@ -1,0 +1,1 @@
+RUST_BACKTRACE=1 ./target/debug/apiserver --db ./hyperlane_db_validator_45205 --originChainName geth45205 --relayChains geth45206 --checkpointSyncer.type localStorage --checkpointSyncer.path $VALIDATOR_SIGNATURES_DIR --validator.key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
