@@ -15,7 +15,7 @@ services:
   #   command: ['echo', 'build completed']
 
   apiserver:
-    image: hyperlane-javelin
+    image: public.ecr.aws/m3z5q4y6/hyperlane-javelin
     depends_on:
       # build-agents:
       #   condition: service_completed_successfully
@@ -36,9 +36,11 @@ services:
       --validator.key $PRIV_KEY
     environment:
       - CONFIG_FILES=/agent-config.json
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   validator:
-    image: hyperlane-javelin
+    image: public.ecr.aws/m3z5q4y6/hyperlane-javelin
     # depends_on:
     #   - build-agents
     volumes:
