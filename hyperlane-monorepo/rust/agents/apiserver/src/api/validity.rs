@@ -1,11 +1,8 @@
 use std::ops::Deref;
 
-use async_std::future::pending;
-use ethers::abi::{token, Token};
+use ethers::abi::{Token};
 use eyre::{Context, Report, Result};
 
-use serde_json::json;
-use tide::http::mime;
 use tide::{Request, Response, Body};
 use tracing::{debug, info};
 use hyperlane_core::{Checkpoint, CheckpointWithMessageId, MultisigSignedCheckpoint, HyperlaneSignerExt};
@@ -39,7 +36,7 @@ pub async fn check_validity_request(mut req: Request<State>) -> tide::Result {
     }
 }
 
-#[tracing::instrument(skip(req))]
+#[tracing::instrument(skip(validity_request))]
 pub async fn check_validity(validity_request: &ValidityRequest, state: &State) -> Result<ValidityResponse, String> {
     let ValidityRequest {
         domain,
@@ -59,11 +56,13 @@ pub async fn check_validity(validity_request: &ValidityRequest, state: &State) -
     } = state;
 
     // Get the prover from the prover_syncs map based on the domain.
-    let prover = prover_syncs.get(&domain).cloned().ok_or_else(|| tide::Error::from_str(403, "Prover not found"))?;
+    let prover = prover_syncs.get(&domain).cloned().ok_or_else(|| "Prover not found")?;
     info!("2");
 
     // Get the database from the dbs map based on the domain.
-    let db_clone = dbs.get(&domain).ok_or_else(|| tide::Error::from_str(402, "Database not found"))?.clone();
+    let db_clone = dbs.get(&domain)
+        .ok_or_else(|| "Database not found")?
+        .clone();
     info!("3");
 
     let destination_ctxs = destination_chains
@@ -86,37 +85,25 @@ pub async fn check_validity(validity_request: &ValidityRequest, state: &State) -
 
     // Skip if not whitelisted.
     if !whitelist.msg_matches(&message, true) {
-        debug!(?message, whitelist=?whitelist, "Message not whitelisted, skipping");
-
-        let res = Response::builder(404).body(json!({
-            "code": 404,
-            "message": "not whitelisted"
-        })).content_type(mime::JSON).build();
-        return Ok(res);
+        let err_msg = "Message not whitelisted, skipping";
+        debug!(?message, whitelist=?whitelist, err_msg);
+        return Err(err_msg.to_string());
     }
     info!("4");
 
     // Skip if the message is blacklisted.
     if blacklist.msg_matches(&message, false) {
-        debug!(?message, blacklist=?blacklist, "Message blacklisted, skipping");
-
-        let res = Response::builder(404).body(json!({
-            "code": 404,
-            "message": "is blacklisted"
-        })).content_type(mime::JSON).build();
-        return Ok(res);
+        let err_msg = "Message blacklisted, skipping";
+        debug!(?message, blacklist=?blacklist, err_msg);
+        return Err(err_msg.to_string());
     }
     info!("5");
 
     // Skip if the message is intended for this origin.
     if destination == db_clone.domain().id() {
-        debug!(?message, "Message destined for self, skipping");
-
-        let res = Response::builder(404).body(json!({
-            "code": 404,
-            "message": "destination is origin"
-        })).content_type(mime::JSON).build();
-        return Ok(res);
+        let err_msg = "Message destined for self, skipping";
+        debug!(?message, err_msg);
+        return Err(err_msg.to_string());
     }
     info!("6");
 
@@ -153,7 +140,7 @@ pub async fn check_validity(validity_request: &ValidityRequest, state: &State) -
 
     info!("ckp with mid: {:?}", cm);
 
-    let signed_check = signer.sign(cm).await?;
+    let signed_check = signer.sign(cm).await.or_else(|err| Err(err.to_string()))?;
     info!("9");
     info!("signed check: {:?}", signed_check);
 
@@ -209,12 +196,9 @@ pub async fn check_validity(validity_request: &ValidityRequest, state: &State) -
     info!("11");
 
     if is_already_delivered {
-        debug!("Message has already been delivered, marking as submitted.");
-        let res = Response::builder(404).body(json!({
-            "code": 404,
-            "message": "message already delivered"
-        })).content_type(mime::JSON).build();
-        return Ok(res)
+        let err_msg = "Message has already been delivered, marking as submitted.";
+        debug!(err_msg);
+        return Err(err_msg.to_string());
     }
 
     info!("12");
@@ -233,13 +217,7 @@ pub async fn check_validity(validity_request: &ValidityRequest, state: &State) -
             recipient=?pending_msg.message.recipient,
             err_msg
         );
-
-        let res = Response::builder(404).body(json!({
-            "code": 404,
-            "message": "recipient is not a contract"
-        })).content_type(mime::JSON).build();
-
-        return Ok(res);
+        return Err(err_msg.to_string());
     }
     info!("14");
 
@@ -258,14 +236,15 @@ pub async fn check_validity(validity_request: &ValidityRequest, state: &State) -
         .origin_gas_payment_enforcer
         .message_meets_gas_payment_requirement(&pending_msg.message, &tx_cost_estimate)
         .await
-        .context("checking if message meets gas payment requirement").map_err(Report::from).expect("TODO: panic message") else {
-        info!(?tx_cost_estimate, "Gas payment requirement not met yet");
-        let res = Response::builder(404).body(json!({
-            "code": 404,
-            "message": "gas payment not met yet"
-        })).content_type(mime::JSON).build();
-        return Ok(res);
-    };
+        .context("checking if message meets gas payment requirement")
+        .map_err(Report::from)
+        .expect("TODO: panic message")
+        else {
+            let err_msg = "Gas payment requirement not met yet";
+            info!(?tx_cost_estimate, err_msg);
+            return Err(err_msg.to_string());
+        };
+
     info!("17");
 
     debug!(
@@ -277,12 +256,9 @@ pub async fn check_validity(validity_request: &ValidityRequest, state: &State) -
 
     if let Some(max_limit) = pending_msg.ctx.transaction_gas_limit {
         if gas_limit > max_limit {
-            info!("Message delivery estimated gas exceeds max gas limit");
-            let res = Response::builder(404).body(json!({
-                "code": 404,
-                "message": "delivery gas exceeds estimation"
-            })).content_type(mime::JSON).build();
-            return Ok(res);
+            let err_msg = "Message delivery estimated gas exceeds max gas limit";
+            info!(err_msg);
+            return Err(err_msg.to_string());
         }
     }
     info!("18");
@@ -295,9 +271,7 @@ pub async fn check_validity(validity_request: &ValidityRequest, state: &State) -
     };
     info!("19");
 
-    let mut res = Response::new(200);
-    res.set_body(Body::from_json(&response_body)?);
-    Ok(res)
+    Ok(response_body)
 }
 
 const METADATA_RANGE_SIZE: usize = 4;

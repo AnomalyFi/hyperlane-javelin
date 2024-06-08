@@ -1,5 +1,7 @@
 use std::{
-    borrow::{Borrow, BorrowMut}, collections::{HashMap, HashSet}, fmt::{Debug, Formatter}, sync::Arc
+    collections::{HashMap, HashSet},
+    fmt::{Debug, Formatter},
+    sync::Arc
 };
 
 use async_trait::async_trait;
@@ -24,6 +26,7 @@ use tokio::{
 use tracing::{info, info_span, instrument::Instrumented, Instrument};
 
 use tide::prelude::*;
+use tide_tracing::TraceMiddleware;
 use hyperlane_ethereum::{SingletonSigner, SingletonSignerHandle};
 
 use crate::merkle_tree::processor::{MerkleTreeProcessor, MerkleTreeProcessorMetrics};
@@ -59,7 +62,7 @@ pub struct ValidityRequest {
 impl Default for ValidityRequest {
     fn default() -> Self {
         ValidityRequest {
-            domain: HyperlaneDomain::new_test_domain("geth0"),
+            domain: HyperlaneDomain::new_test_domain("geth0", 0),
             message: HyperlaneMessage::default()
         } 
     }
@@ -537,10 +540,10 @@ impl APIServer {
         app.at("/check/validity").post(|req| async {
             let validity_span = info_span!("check validity");
             info!("reach check validity");
-            api::validity::check_validity(req).instrument(validity_span).await
+            api::validity::check_validity_request(req).instrument(validity_span).await
         });
 
-        app.at("/check/batch_validity").post(validity::batch_check_validity_request);
+        app.at("/check/batch_validity").post(api::validity::batch_check_validity_request);
 
         // app.listen("127.0.0.1:8080").await?;
         // Define your Tide routes and handlers here

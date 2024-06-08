@@ -59,7 +59,7 @@ pub trait PendingOperation {
 }
 
 /// A "dynamic" pending operation implementation which knows about the
-/// different sub types and can properly implement PartialEq and
+/// different subtypes and can properly implement PartialEq and
 /// PartialOrd for them.
 #[enum_dispatch(PendingOperation)]
 #[derive(Debug, PartialEq, Eq)]

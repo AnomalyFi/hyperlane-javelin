@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 use std::num::NonZeroU64;
-use std::ops::{ControlFlow, RangeInclusive};
+use std::ops::{RangeInclusive};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -486,7 +486,7 @@ mod test {
             .await
             .unwrap();
 
-        // The TxCostEstimat's gas limit includes the buffer
+        // The TxCostEstimate's gas limit includes the buffer
         let estimated_gas_limit = gas_limit.saturating_add(GAS_ESTIMATE_BUFFER.into());
 
         assert_eq!(
