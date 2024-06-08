@@ -52,7 +52,7 @@ impl Default for HyperlaneMessage {
             sender: H256::zero(),
             destination: 0,
             recipient: H256::zero(),
-            body: vec![],
+            body: vec![1, 2, 3],
         }
     }
 }
@@ -186,4 +186,3 @@ impl HyperlaneMessage {
     //     deserialize(bytes).expect("Deserialization failed")
     // }
 }
-

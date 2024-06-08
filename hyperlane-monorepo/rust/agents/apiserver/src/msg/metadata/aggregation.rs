@@ -21,11 +21,11 @@ pub struct AggregationIsmMetadataBuilder {
 }
 
 #[derive(Clone, Debug, new, PartialEq, Eq)]
-struct SubModuleMetadata {
+pub struct SubModuleMetadata {
     /// The index of the sub-module (ISM) in the aggregation ISM.
-    index: usize,
+    pub index: usize,
     /// The metadata for the sub-module.
-    metadata: Vec<u8>,
+    pub metadata: Vec<u8>,
 }
 
 #[derive(Debug)]

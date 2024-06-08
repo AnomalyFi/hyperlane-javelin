@@ -3,14 +3,14 @@
 
 use std::collections::HashMap;
 use std::num::NonZeroU64;
-use std::ops::RangeInclusive;
+use std::ops::{ControlFlow, RangeInclusive};
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use ethers::abi::AbiEncode;
 use ethers::prelude::Middleware;
 use ethers_contract::builders::ContractCall;
-use tracing::instrument;
+use tracing::{info, instrument};
 
 use hyperlane_core::{
     utils::fmt_bytes, ChainCommunicationError, ChainResult, ContractLocator, HyperlaneAbi,
@@ -262,6 +262,10 @@ where
         metadata: &[u8],
         tx_gas_limit: Option<U256>,
     ) -> ChainResult<ContractCall<M, ()>> {
+        let raw_meta: ethers::core::types::Bytes = metadata.to_vec().into();
+        let raw_msg: ethers::core::types::Bytes = RawHyperlaneMessage::from(message).to_vec().into();
+        info!("raw msg: {}", raw_msg);
+        info!("raw meta: {}", raw_meta);
         let tx = self.contract.process(
             metadata.to_vec().into(),
             RawHyperlaneMessage::from(message).to_vec().into(),
@@ -474,6 +478,8 @@ mod test {
         // Return 1M gas
         let gas_limit = U256::from(1000000u32);
         mock_provider.push(gas_limit).unwrap();
+        println!("{:?}", message);
+        println!("{:?}", metadata);
 
         let tx_cost_estimate = mailbox
             .process_estimate_costs(&message, &metadata)

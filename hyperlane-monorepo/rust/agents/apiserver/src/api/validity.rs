@@ -1,16 +1,27 @@
-use ethers::abi::Token;
+use std::ops::Deref;
+
+use async_std::future::pending;
+use ethers::abi::{token, Token};
 use eyre::{Context, Report, Result};
 
+use serde_json::json;
+use tide::http::mime;
 use tide::{Request, Response, Body};
 use tracing::{debug, info};
 use hyperlane_core::{Checkpoint, CheckpointWithMessageId, MultisigSignedCheckpoint, HyperlaneSignerExt};
+
 use crate::api::api_msgs::{new_validity_response_error, ValidityBatchRequest, ValidityBatchResponse, ValidityRequest, ValidityResponse};
 use crate::apiserver::State;
 use crate::msg::pending_message::PendingMessage;
 use crate::msg::metadata::multisig::{MetadataToken, MultisigMetadata};
+use crate::msg::metadata::SubModuleMetadata;
 
+#[tracing::instrument(skip(req))]
 pub async fn check_validity_request(mut req: Request<State>) -> tide::Result {
+    info!("0");
     let validity_request: ValidityRequest = req.body_json().await?;
+    info!("1");
+
     let state = req.state().clone();
 
     match check_validity(&validity_request, &state).await {
@@ -28,6 +39,7 @@ pub async fn check_validity_request(mut req: Request<State>) -> tide::Result {
     }
 }
 
+#[tracing::instrument(skip(req))]
 pub async fn check_validity(validity_request: &ValidityRequest, state: &State) -> Result<ValidityResponse, String> {
     let ValidityRequest {
         domain,
@@ -47,12 +59,12 @@ pub async fn check_validity(validity_request: &ValidityRequest, state: &State) -
     } = state;
 
     // Get the prover from the prover_syncs map based on the domain.
-    let prover = prover_syncs.get(&domain).cloned().ok_or_else(|| "Prover not found")?;
+    let prover = prover_syncs.get(&domain).cloned().ok_or_else(|| tide::Error::from_str(403, "Prover not found"))?;
+    info!("2");
 
     // Get the database from the dbs map based on the domain.
-    let db_clone = dbs.get(&domain)
-        .ok_or_else(|| "Database not found")?
-        .clone();
+    let db_clone = dbs.get(&domain).ok_or_else(|| tide::Error::from_str(402, "Database not found"))?.clone();
+    info!("3");
 
     let destination_ctxs = destination_chains
         .keys()
@@ -68,29 +80,45 @@ pub async fn check_validity(validity_request: &ValidityRequest, state: &State) -
             )
         })
         .collect::<std::collections::HashMap<_, _>>();
+    info!("destination ctxs: {:?}", destination_ctxs);
 
     let destination = message.destination;
 
     // Skip if not whitelisted.
     if !whitelist.msg_matches(&message, true) {
-        let err_msg = "Message not whitelisted, skipping";
-        debug!(?message, whitelist=?whitelist, err_msg);
-        return Err(err_msg.to_string());
+        debug!(?message, whitelist=?whitelist, "Message not whitelisted, skipping");
+
+        let res = Response::builder(404).body(json!({
+            "code": 404,
+            "message": "not whitelisted"
+        })).content_type(mime::JSON).build();
+        return Ok(res);
     }
+    info!("4");
 
     // Skip if the message is blacklisted.
     if blacklist.msg_matches(&message, false) {
-        let err_msg = "Message blacklisted, skipping";
-        debug!(?message, blacklist=?blacklist, err_msg);
-        return Err(err_msg.to_string());
+        debug!(?message, blacklist=?blacklist, "Message blacklisted, skipping");
+
+        let res = Response::builder(404).body(json!({
+            "code": 404,
+            "message": "is blacklisted"
+        })).content_type(mime::JSON).build();
+        return Ok(res);
     }
+    info!("5");
 
     // Skip if the message is intended for this origin.
     if destination == db_clone.domain().id() {
-        let err_msg = "Message destined for self, skipping";
-        debug!(?message, err_msg);
-        return Err(err_msg.to_string());
+        debug!(?message, "Message destined for self, skipping");
+
+        let res = Response::builder(404).body(json!({
+            "code": 404,
+            "message": "destination is origin"
+        })).content_type(mime::JSON).build();
+        return Ok(res);
     }
+    info!("6");
 
     debug!(%message, "Sending message to submitter");
 
@@ -102,10 +130,13 @@ pub async fn check_validity(validity_request: &ValidityRequest, state: &State) -
         .await
         .map_err(Report::from).expect("TODO: panic message");
 
+    info!("7");
 
     let tree = prover.read().await.incremental;
 
     let origin_conf = origin_chains.get(db_clone.domain()).unwrap().clone();
+    info!("8");
+    info!("origin_conf: {:?}", origin_conf);
 
     let c = Checkpoint {
         root: tree.root(),
@@ -113,13 +144,18 @@ pub async fn check_validity(validity_request: &ValidityRequest, state: &State) -
         merkle_tree_hook_address: origin_conf.addresses.merkle_tree_hook,
         mailbox_domain: domain.id(),
     };
+    info!("ckp: {:?}", c);
 
     let cm = CheckpointWithMessageId {
         checkpoint: c,
         message_id: message.id(),
     };
 
-    let signed_check = signer.sign(cm).await.or_else(|err| Err(err.to_string()))?;
+    info!("ckp with mid: {:?}", cm);
+
+    let signed_check = signer.sign(cm).await?;
+    info!("9");
+    info!("signed check: {:?}", signed_check);
 
     const CTX: &str = "When fetching message proof";
     let proof = prover
@@ -128,41 +164,68 @@ pub async fn check_validity(validity_request: &ValidityRequest, state: &State) -
         .get_proof(tree.index(), tree.index())
         .context(CTX)
         .map_err(Report::from).expect("TODO: panic message");
+    info!("10");
+    info!("proof: {:?}", proof);
 
     let mcm = MultisigSignedCheckpoint {
         checkpoint: cm,
         signatures: vec![signed_check.signature],
     };
+    info!("mcm: {:?}", mcm);
 
-    let metadata = MultisigMetadata::new(
-        mcm,
+    let meta1 = MultisigMetadata::new(
+        mcm.clone(),
         tree.index(),
         Some(proof),
     );
+    // let meta2 = MultisigMetadata::new(mcm, tree.index(), Some(proof));
 
+    let meta1raw = format_metadata("merkle", meta1).unwrap();
+    // let meta2raw = format_metadata("message_id", meta2).unwrap();
+    let sub_meta1 = SubModuleMetadata::new(0, meta1raw);
+    // let sub_meta2 = SubModuleMetadata::new(1, meta2raw);
+    // Note: only one meta is needed as more of it will cause Arithemetic Overflow
+    let metadata = format_aggregation_meta(&mut [sub_meta1, ], 1);
+    
     // Finally, build submit arg and dispatch it to the submitter.
     let pending_msg = PendingMessage::from_persisted_retries(
         message.clone(),
         destination_ctxs[&destination].clone(),
     );
 
+    info!("{:?}", pending_msg);
+    info!("destination mailbox: {:?}", pending_msg.ctx.destination_mailbox);
+
+    // TODO: fix this
     let is_already_delivered = pending_msg.ctx
         .destination_mailbox
         .delivered(pending_msg.message.id())
         .await
         .context("checking message delivery status")
-        .map_err(Report::from).expect("TODO: panic message");
+        .map_err(|err| {
+            info!("err: {}", err);
+        }).expect("TODO: panic message");
+
+    info!("11");
 
     if is_already_delivered {
-        let err_msg = "Message has already been delivered, marking as submitted.";
-        debug!(err_msg);
-        return Err(err_msg.to_string());
+        debug!("Message has already been delivered, marking as submitted.");
+        let res = Response::builder(404).body(json!({
+            "code": 404,
+            "message": "message already delivered"
+        })).content_type(mime::JSON).build();
+        return Ok(res)
     }
 
+    info!("12");
+
     let provider = pending_msg.ctx.destination_mailbox.provider();
+    info!("{:?}", provider);
+    info!("12.1");
 
     // We cannot deliver to an address that is not a contract so check and drop if it isn't.
     let is_contract = provider.is_contract(&pending_msg.message.recipient).await.context("checking if message recipient is a contract").map_err(Report::from).expect("TODO: panic message");
+    info!("13");
 
     if !is_contract {
         let err_msg = "Dropping message because recipient is not a contract";
@@ -170,7 +233,128 @@ pub async fn check_validity(validity_request: &ValidityRequest, state: &State) -
             recipient=?pending_msg.message.recipient,
             err_msg
         );
-        return Err(err_msg.to_string());
+
+        let res = Response::builder(404).body(json!({
+            "code": 404,
+            "message": "recipient is not a contract"
+        })).content_type(mime::JSON).build();
+
+        return Ok(res);
+    }
+    info!("14");
+
+    let tx_cost_estimate = pending_msg.ctx
+        .destination_mailbox
+        .process_estimate_costs(&pending_msg.message, &metadata)
+        .await
+        .context("estimating costs for process call")
+        .map_err(|r| {
+            let err = r.source();
+            info!("error process estimate costs: {:?}", err);
+        }).expect("TODO: panic message");
+    info!("16");
+
+    let Some(gas_limit) = pending_msg.ctx
+        .origin_gas_payment_enforcer
+        .message_meets_gas_payment_requirement(&pending_msg.message, &tx_cost_estimate)
+        .await
+        .context("checking if message meets gas payment requirement").map_err(Report::from).expect("TODO: panic message") else {
+        info!(?tx_cost_estimate, "Gas payment requirement not met yet");
+        let res = Response::builder(404).body(json!({
+            "code": 404,
+            "message": "gas payment not met yet"
+        })).content_type(mime::JSON).build();
+        return Ok(res);
+    };
+    info!("17");
+
+    debug!(
+        ?gas_limit,
+        "Gas payment requirement met, ready to process message"
+    );
+
+    let gas_limit = tx_cost_estimate.gas_limit;
+
+    if let Some(max_limit) = pending_msg.ctx.transaction_gas_limit {
+        if gas_limit > max_limit {
+            info!("Message delivery estimated gas exceeds max gas limit");
+            let res = Response::builder(404).body(json!({
+                "code": 404,
+                "message": "delivery gas exceeds estimation"
+            })).content_type(mime::JSON).build();
+            return Ok(res);
+        }
+    }
+    info!("18");
+
+    let response_body = ValidityResponse {
+        message: pending_msg.message,
+        metadata: metadata,
+        gas_limit,
+        error: None,
+    };
+    info!("19");
+
+    let mut res = Response::new(200);
+    res.set_body(Body::from_json(&response_body)?);
+    Ok(res)
+}
+
+const METADATA_RANGE_SIZE: usize = 4;
+
+fn format_aggregation_meta(metadatas: &mut [SubModuleMetadata], ism_count: usize) -> Vec<u8> {
+    // See test solidity implementation of this fn at:
+    // https://github.com/hyperlane-xyz/hyperlane-monorepo/blob/445da4fb0d8140a08c4b314e3051b7a934b0f968/solidity/test/isms/AggregationIsm.t.sol#L35
+    fn encode_byte_index(i: usize) -> [u8; 4] {
+        (i as u32).to_be_bytes()
+    }
+    let range_tuples_size = METADATA_RANGE_SIZE * 2 * ism_count;
+    //  Format of metadata:
+    //  [????:????] Metadata start/end uint32 ranges, packed as uint64
+    //  [????:????] ISM metadata, packed encoding
+    // Initialize the range tuple part of the buffer, so the actual metadatas can
+    // simply be appended to it
+    let mut buffer = vec![0; range_tuples_size];
+    for SubModuleMetadata { index, metadata } in metadatas.iter_mut() {
+        let range_start = buffer.len();
+        buffer.append(metadata);
+        let range_end = buffer.len();
+
+        // The new tuple starts at the end of the previous ones.
+        // Also see: https://github.com/hyperlane-xyz/hyperlane-monorepo/blob/445da4fb0d8140a08c4b314e3051b7a934b0f968/solidity/contracts/libs/isms/AggregationIsmMetadata.sol#L49
+        let encoded_range_start = METADATA_RANGE_SIZE * 2 * (*index);
+        // Overwrite the 0-initialized buffer
+        buffer.splice(
+            encoded_range_start..(encoded_range_start + METADATA_RANGE_SIZE * 2),
+            [encode_byte_index(range_start), encode_byte_index(range_end)].concat(),
+        );
+    }
+    buffer
+}
+
+fn format_metadata(t: &str, metadata: MultisigMetadata) -> Result<Vec<u8>> {
+    let merkle_token_layout = vec![
+        MetadataToken::CheckpointMerkleTreeHook,
+        MetadataToken::MessageMerkleLeafIndex,
+        MetadataToken::MessageId,
+        MetadataToken::MerkleProof,
+        MetadataToken::CheckpointIndex,
+        MetadataToken::Signatures,
+    ];
+    let message_id_token_layout = vec![
+        MetadataToken::CheckpointMerkleTreeHook,
+        MetadataToken::CheckpointMerkleRoot,
+        MetadataToken::CheckpointIndex,
+        MetadataToken::Signatures,
+    ];
+
+    let token_layout:  &Vec<MetadataToken>;
+    if t == "merkle" {
+        token_layout = &merkle_token_layout;
+    } else if t == "message_id" {
+        token_layout = &message_id_token_layout; 
+    } else {
+        return Err(Report::msg("no supported token layout"))
     }
 
     let build_token = |token: &MetadataToken| -> Result<Vec<u8>> {
@@ -210,64 +394,9 @@ pub async fn check_validity(validity_request: &ValidityRequest, state: &State) -
                 .concat()),
         }
     };
-    let token_layout = vec![
-        MetadataToken::CheckpointMerkleTreeHook,
-        MetadataToken::MessageMerkleLeafIndex,
-        MetadataToken::MessageId,
-        MetadataToken::MerkleProof,
-        MetadataToken::CheckpointIndex,
-        MetadataToken::Signatures,
-    ];
-    let metas: Vec<Vec<u8>> = token_layout
-        .iter()
-        .map(build_token)
-        .collect::<Result<Vec<Vec<u8>>, _>>()
-        .map_err(Report::from)
-        .expect("TODO: panic message");
 
-    let meta: Vec<u8> = metas.into_iter().flatten().collect();
-
-    let tx_cost_estimate = pending_msg.ctx
-        .destination_mailbox
-        .process_estimate_costs(&pending_msg.message, &meta)
-        .await
-        .context("estimating costs for process call")
-        .map_err(Report::from).expect("TODO: panic message");
-
-    let Some(gas_limit) = pending_msg.ctx
-        .origin_gas_payment_enforcer
-        .message_meets_gas_payment_requirement(&pending_msg.message, &tx_cost_estimate)
-        .await
-        .context("checking if message meets gas payment requirement")
-        .map_err(Report::from)
-        .expect("TODO: panic message") else {
-            let err_msg = "Gas payment requirement not met yet";
-            info!(?tx_cost_estimate, err_msg);
-            return Err(err_msg.to_string());
-        };
-
-    debug!(
-        ?gas_limit,
-        "Gas payment requirement met, ready to process message"
-    );
-
-    let gas_limit = tx_cost_estimate.gas_limit;
-
-    if let Some(max_limit) = pending_msg.ctx.transaction_gas_limit {
-        if gas_limit > max_limit {
-            let err_msg = "Message delivery estimated gas exceeds max gas limit";
-            info!(err_msg);
-            return Err(err_msg.to_string());
-        }
-    }
-
-    let response_body = ValidityResponse {
-        message: pending_msg.message,
-        metadata: meta,
-        gas_limit,
-        error: None,
-    };
-    Ok(response_body)
+    let metas: Result<Vec<Vec<u8>>> = token_layout.deref().iter().map(build_token).collect();
+    Ok(metas?.into_iter().flatten().collect())
 }
 
 pub async fn batch_check_validity_request(mut req: Request<State>) -> tide::Result {
@@ -280,6 +409,7 @@ pub async fn batch_check_validity_request(mut req: Request<State>) -> tide::Resu
     res.set_body(Body::from_json(&batch_response)?);
     Ok(res)
 }
+
 pub async fn batch_check_validity(validity_batch_request: &ValidityBatchRequest, state: &State) -> ValidityBatchResponse {
     let mut response_body = ValidityBatchResponse::new();
 

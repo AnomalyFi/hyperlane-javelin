@@ -1,7 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
-    fmt::{Debug, Formatter},
-    sync::Arc,
+    borrow::{Borrow, BorrowMut}, collections::{HashMap, HashSet}, fmt::{Debug, Formatter}, sync::Arc
 };
 
 use async_trait::async_trait;
@@ -25,7 +23,7 @@ use tokio::{
 };
 use tracing::{info, info_span, instrument::Instrumented, Instrument};
 
-use api::validity;
+use tide::prelude::*;
 use hyperlane_ethereum::{SingletonSigner, SingletonSignerHandle};
 
 use crate::merkle_tree::processor::{MerkleTreeProcessor, MerkleTreeProcessorMetrics};
@@ -49,6 +47,30 @@ pub struct State {
     pub blacklist: Arc<MatchingList>,
     pub msg_ctxs: HashMap<ContextKey, Arc<MessageContext>>,
     pub signer: SingletonSignerHandle,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ValidityRequest {
+    pub domain: HyperlaneDomain,
+    pub message: HyperlaneMessage,
+    //insertion: MerkleTreeInsertion,
+}
+
+impl Default for ValidityRequest {
+    fn default() -> Self {
+        ValidityRequest {
+            domain: HyperlaneDomain::new_test_domain("geth0"),
+            message: HyperlaneMessage::default()
+        } 
+    }
+}
+
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ValidityResponse {
+    pub message: HyperlaneMessage,
+    pub metadata: Vec<u8>,
+    pub gas_limit: U256,
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
@@ -187,6 +209,7 @@ impl BaseAgent for APIServer {
             .origin_chains
             .iter()
             .map(|origin| {
+                info!("setting up prover {}", origin.id());
                 (
                     origin.clone(),
                     Arc::new(RwLock::new(MerkleTreeBuilder::new())),
@@ -292,7 +315,6 @@ impl BaseAgent for APIServer {
     #[allow(clippy::async_yields_async)]
     async fn run(mut self) -> Instrumented<JoinHandle<Result<()>>> {
         let mut tasks = vec![];
-
 
         if let Some(signer_instance) = self.signer_instance.take() {
             tasks.push(
@@ -510,17 +532,24 @@ impl APIServer {
         };
 
         let mut app = tide::with_state(state);
+        app.with(TraceMiddleware::new());
 
-        app.at("/check/validity").post(validity::check_validity_request);
+        app.at("/check/validity").post(|req| async {
+            let validity_span = info_span!("check validity");
+            info!("reach check validity");
+            api::validity::check_validity(req).instrument(validity_span).await
+        });
+
         app.at("/check/batch_validity").post(validity::batch_check_validity_request);
+
         // app.listen("127.0.0.1:8080").await?;
         // Define your Tide routes and handlers here
         app.at("/").get(|_| async { Ok("Hello, Tide!") });
 
-        let server_span = info_span!("TideServer", address = "127.0.0.1:8080");
-        let server = app.listen("127.0.0.1:8080");
+        let server_span = info_span!("TideServer", address = "0.0.0.0:8080");
+        let server = app.listen("0.0.0.0:8080");
 
-        info!("api server is on at :8080");
+        info!("api server is on at 0.0.0.0:8080");
 
         tokio::spawn(async move {
             let res = server.await;
@@ -532,4 +561,13 @@ impl APIServer {
 }
 
 #[cfg(test)]
-mod test {}
+mod test {
+    use super::ValidityRequest;
+
+    #[test]
+    fn test_param_serialization() {
+        let param = ValidityRequest::default();
+        let param_str = serde_json::to_string(&param).unwrap();
+        println!("{}", param_str);
+    }
+}

@@ -34,7 +34,8 @@ tokio = { workspace = true, features = ["rt", "macros", "parking_lot"] }
 tracing-futures.workspace = true
 tracing.workspace = true
 tide = "0.16.0"
-async-std = { version = "1.8.0", features = ["attributes"] }
+tide-tracing.worksapce = true
+async-std = { version = "1.8.0", features = ["attributes", "tokio1"] }
 
 hyperlane-core = { path = "../../hyperlane-core", features = ["agent"] }
 hyperlane-base = { path = "../../hyperlane-base" }

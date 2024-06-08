@@ -168,6 +168,7 @@ tempfile = "3.3"
 tendermint = "0.32.2"
 tendermint-rpc = { version = "0.32.0", features = ["http-client", "tokio"] }
 thiserror = "1.0"
+tide-tracing = "0.1.1"
 time = "0.3"
 tiny-keccak = "2.0.2"
 tokio = { version = "1", features = ["parking_lot"] }
