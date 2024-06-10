@@ -43,7 +43,7 @@ mod test {
     async fn db_stores_and_retrieves_messages() {
         run_test_db(|db| async move {
             let db = HyperlaneRocksDB::new(
-                &HyperlaneDomain::new_test_domain("db_stores_and_retrieves_messages"),
+                &HyperlaneDomain::new_test_domain("db_stores_and_retrieves_messages", 0),
                 db,
             );
 

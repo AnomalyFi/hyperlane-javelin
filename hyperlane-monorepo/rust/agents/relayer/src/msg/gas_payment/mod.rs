@@ -161,7 +161,7 @@ mod test {
     async fn test_empty_whitelist() {
         test_utils::run_test_db(|db| async move {
             let hyperlane_db = HyperlaneRocksDB::new(
-                &HyperlaneDomain::new_test_domain("test_empty_whitelist"),
+                &HyperlaneDomain::new_test_domain("test_empty_whitelist", 0),
                 db,
             );
 
@@ -197,7 +197,7 @@ mod test {
         #[allow(unused_must_use)]
         test_utils::run_test_db(|db| async move {
             let hyperlane_db =
-                HyperlaneRocksDB::new(&HyperlaneDomain::new_test_domain("test_no_match"), db);
+                HyperlaneRocksDB::new(&HyperlaneDomain::new_test_domain("test_no_match", 0), db);
             let matching_list = serde_json::from_str(r#"[{"origindomain": 234}]"#).unwrap();
             let enforcer = GasPaymentEnforcer::new(
                 // Require a payment
@@ -231,7 +231,7 @@ mod test {
             };
 
             let hyperlane_db = HyperlaneRocksDB::new(
-                &HyperlaneDomain::new_test_domain("test_different_destinations"),
+                &HyperlaneDomain::new_test_domain("test_different_destinations", 0),
                 db,
             );
             let enforcer = GasPaymentEnforcer::new(
@@ -287,7 +287,7 @@ mod test {
             };
 
             let hyperlane_db = HyperlaneRocksDB::new(
-                &HyperlaneDomain::new_test_domain("test_half_and_half_payment"),
+                &HyperlaneDomain::new_test_domain("test_half_and_half_payment", 0),
                 db,
             );
 
@@ -336,7 +336,7 @@ mod test {
     #[tokio::test]
     async fn test_non_empty_matching_list() {
         test_utils::run_test_db(|db| async move {
-            let hyperlane_db = HyperlaneRocksDB::new(&HyperlaneDomain::new_test_domain("test_non_empty_matching_list"), db);
+            let hyperlane_db = HyperlaneRocksDB::new(&HyperlaneDomain::new_test_domain("test_non_empty_matching_list", 0), db);
 
             let sender_address = "0xaa000000000000000000000000000000000000aa";
             let recipient_address = "0xbb000000000000000000000000000000000000bb";

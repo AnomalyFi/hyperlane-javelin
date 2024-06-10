@@ -323,7 +323,7 @@ mod test {
     }
 
     fn dummy_domain(domain_id: u32, name: &str) -> HyperlaneDomain {
-        let test_domain = HyperlaneDomain::new_test_domain(name);
+        let test_domain = HyperlaneDomain::new_test_domain(name, 0);
         HyperlaneDomain::Unknown {
             domain_id,
             domain_name: name.to_owned(),
