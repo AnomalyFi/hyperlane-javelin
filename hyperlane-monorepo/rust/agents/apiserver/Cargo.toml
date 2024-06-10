@@ -40,13 +40,17 @@ async-std = { version = "1.8.0", features = ["attributes", "tokio1"] }
 hyperlane-core = { path = "../../hyperlane-core", features = ["agent"] }
 hyperlane-base = { path = "../../hyperlane-base" }
 hyperlane-ethereum = { path = "../../chains/hyperlane-ethereum" }
+hyperlane-test = { path = "../../hyperlane-test" }
+ethers-prometheus = { path = "../../ethers-prometheus"}
+
 anyhow = "1.0.75"
 
 [dev-dependencies]
 once_cell.workspace = true
 tokio-test.workspace = true
-hyperlane-test = { path = "../../hyperlane-test" }
 hyperlane-base = { path = "../../hyperlane-base", features = ["test-utils"] }
+mockall = "0.11"
+tempdir = "0.3"
 
 [features]
 default = ["color-eyre", "oneline-errors"]

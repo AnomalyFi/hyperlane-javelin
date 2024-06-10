@@ -25,8 +25,8 @@ pub struct EthereumProvider<M>
 where
     M: Middleware,
 {
-    provider: Arc<M>,
-    domain: HyperlaneDomain,
+    pub(crate) provider: Arc<M>,
+    pub(crate) domain: HyperlaneDomain,
 }
 
 impl<M> HyperlaneChain for EthereumProvider<M>

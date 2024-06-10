@@ -36,5 +36,5 @@ pub fn find_vector(final_component: &str) -> PathBuf {
         .find(|d| d.join(".git").is_dir())
         .expect("could not find .git somewhere! confused about workspace layout");
 
-    git_dir.join("vectors").join(final_component)
+    git_dir.join("hyperlane-monorepo/vectors").join(final_component)
 }

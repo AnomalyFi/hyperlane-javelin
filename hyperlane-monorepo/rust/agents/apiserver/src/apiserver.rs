@@ -1,5 +1,7 @@
 use std::{
-    borrow::{Borrow, BorrowMut}, collections::{HashMap, HashSet}, fmt::{Debug, Formatter}, sync::Arc
+    collections::{HashMap, HashSet},
+    fmt::{Debug, Formatter},
+    sync::Arc
 };
 
 use async_trait::async_trait;
@@ -27,8 +29,6 @@ use tide::prelude::*;
 use tide_tracing::TraceMiddleware;
 use hyperlane_ethereum::{SingletonSigner, SingletonSignerHandle};
 
-
-
 use crate::merkle_tree::processor::{MerkleTreeProcessor, MerkleTreeProcessorMetrics};
 use crate::processor::{Processor, ProcessorExt};
 use crate::{api, merkle_tree::builder::MerkleTreeBuilder, msg::{
@@ -39,8 +39,6 @@ use crate::{api, merkle_tree::builder::MerkleTreeBuilder, msg::{
     processor::{MessageProcessor, MessageProcessorMetrics},
     serial_submitter::{SerialSubmitter, SerialSubmitterMetrics},
 }, settings::{matching_list::MatchingList, APIServerSettings}};
-
-
 
 #[derive(Clone, Debug)]
 pub struct State {
@@ -64,7 +62,7 @@ pub struct ValidityRequest {
 impl Default for ValidityRequest {
     fn default() -> Self {
         ValidityRequest {
-            domain: HyperlaneDomain::new_test_domain("geth0"),
+            domain: HyperlaneDomain::new_test_domain("geth0", 0),
             message: HyperlaneMessage::default()
         } 
     }
@@ -152,7 +150,6 @@ impl BaseAgent for APIServer {
             .iter()
             .map(|origin| (origin.clone(), HyperlaneRocksDB::new(origin, db.clone())))
             .collect::<HashMap<_, _>>();
-
 
         // Intentionally using hyperlane_ethereum for the validator's signer
         let (signer_instance, signer) = SingletonSigner::new(settings.validator.build().await?);
@@ -322,7 +319,6 @@ impl BaseAgent for APIServer {
     async fn run(mut self) -> Instrumented<JoinHandle<Result<()>>> {
         let mut tasks = vec![];
 
-
         if let Some(signer_instance) = self.signer_instance.take() {
             tasks.push(
                 tokio::spawn(async move {
@@ -368,7 +364,7 @@ impl BaseAgent for APIServer {
         }
 
         //TODO Step 1 this is where the messages get synced to the database
-        for (origin_domain, origin_conf) in &self.origin_chains {
+        for (origin_domain, _) in &self.origin_chains {
             tasks.push(self.run_message_sync(origin_domain).await);
             tasks.push(self.run_interchain_gas_payment_sync(origin_domain).await);
             tasks.push(self.run_merkle_tree_hook_syncs(origin_domain).await);
@@ -376,7 +372,7 @@ impl BaseAgent for APIServer {
 
         //TODO Step 2 this is where the messages get processed from the initial sync
         // each message process attempts to send messages from a chain
-        for (origin_domain, origin_conf) in &self.origin_chains {
+        for (origin_domain, _) in &self.origin_chains {
             tasks.push(self.run_message_processor(origin_domain, send_channels.clone()));
             tasks.push(self.run_merkle_tree_processor(origin_domain));
         }
@@ -544,8 +540,11 @@ impl APIServer {
         app.at("/check/validity").post(|req| async {
             let validity_span = info_span!("check validity");
             info!("reach check validity");
-            api::validity::check_validity(req).instrument(validity_span).await
+            api::validity::check_validity_request(req).instrument(validity_span).await
         });
+
+        app.at("/check/batch_validity").post(api::validity::batch_check_validity_request);
+
         // app.listen("127.0.0.1:8080").await?;
         // Define your Tide routes and handlers here
         app.at("/").get(|_| async { Ok("Hello, Tide!") });
@@ -562,12 +561,6 @@ impl APIServer {
         })
         .instrument(server_span)
     }
-
-
-
-
-
-
 }
 
 #[cfg(test)]

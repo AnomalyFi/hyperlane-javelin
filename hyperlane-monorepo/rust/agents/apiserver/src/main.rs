@@ -18,6 +18,7 @@ mod prover;
 mod apiserver;
 mod settings;
 mod api;
+mod testutils;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {

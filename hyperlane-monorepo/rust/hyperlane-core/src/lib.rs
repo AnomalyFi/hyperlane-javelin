@@ -31,10 +31,12 @@ pub mod config;
 pub mod metrics;
 
 /// Core hyperlane system data structures
-mod types;
+pub mod types;
 
 mod chain;
-mod error;
+
+/// Hyperlane errors
+pub mod error;
 
 /// Implementations of custom rpc client logic (e.g. fallback)
 pub mod rpc_clients;

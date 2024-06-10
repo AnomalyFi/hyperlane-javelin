@@ -34,8 +34,8 @@ impl fmt::Debug for SingletonSigner {
 /// A `HyperlaneSigner` which grants access to a singleton signer via a channel.
 #[derive(Clone)]
 pub struct SingletonSignerHandle {
-    address: H160,
-    tx: mpsc::UnboundedSender<SignTask>,
+    pub address: H160,
+    pub tx: mpsc::UnboundedSender<SignTask>,
 }
 
 impl fmt::Debug for SingletonSignerHandle {

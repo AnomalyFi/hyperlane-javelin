@@ -18,8 +18,8 @@ use super::pending_message::*;
 use crate::msg::pending_operation::DynPendingOperation;
 use crate::{processor::ProcessorExt, settings::matching_list::MatchingList};
 
-/// Finds unprocessed messages from an origin and submits then through a channel
-/// for to the appropriate destination.
+/// Finds unprocessed messages from an origin and submits them through a channel
+/// to the appropriate destination.
 #[derive(new)]
 pub struct MessageProcessor {
     db: HyperlaneRocksDB,
@@ -94,7 +94,7 @@ impl ProcessorExt for MessageProcessor {
 
             debug!(%msg, "Sending message to submitter");
 
-            // Finally, build the submit arg and dispatch it to the submitter.
+            // Finally, build the submit arguments and dispatch it to the submitter.
             let pending_msg = PendingMessage::from_persisted_retries(
                 msg,
                 self.destination_ctxs[&destination].clone(),
@@ -323,7 +323,7 @@ mod test {
     }
 
     fn dummy_domain(domain_id: u32, name: &str) -> HyperlaneDomain {
-        let test_domain = HyperlaneDomain::new_test_domain(name);
+        let test_domain = HyperlaneDomain::new_test_domain(name, 0);
         HyperlaneDomain::Unknown {
             domain_id,
             domain_name: name.to_owned(),
@@ -374,7 +374,7 @@ mod test {
             _ = process_fut => {},
             _ = pending_message_accumulator => {},
             _ = sleep(Duration::from_millis(200)) => { panic!("No PendingMessage received from the processor") }
-        };
+        }
         pending_messages
     }
 

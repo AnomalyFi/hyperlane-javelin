@@ -1,10 +1,10 @@
 {
   "sealeveltest1": {
-    "hex": "0xa77b4e2ed231894cc8cb8eee21adcc705d8489bccc6b2fcf40a358de23e60b7b",
-    "base58": "CGn8yNtSD3aTTqJfYhUb6s1aVTN75NzwtsFKo1e83aga"
+    "hex": "0x7124df401ce0633a5f2c73d0320eff316fed49263fd1997600b98a6ac79c830a",
+    "base58": "8cfgRVYUvBha5mX4XQDRn5HJtXcBgjwAJpmYQGKKk9of"
   },
   "sealeveltest2": {
-    "hex": "0x2317f9615d4ebc2419ad4b88580e2a80a03b2c7a60bc960de7d6934dbc37a87e",
-    "base58": "3MzUPjP5LEkiHH82nEAe28Xtz9ztuMqWc8UmuKxrpVQH"
+    "hex": "0x8ccf17e1f2402688bf76da74cbfd17f2a21e9e4e3f5857fa97ebb422f6e1a92d",
+    "base58": "AUfETbSWavHAzYmLiCPhPw8ghz1AbukiaBKJSfrsXuG8"
   }
 }

@@ -1,25 +1,47 @@
 use std::ops::Deref;
 
-use async_std::future::pending;
-use ethers::abi::{token, Token};
+use ethers::abi::{Token};
 use eyre::{Context, Report, Result};
 
-use serde_json::json;
-use tide::http::mime;
 use tide::{Request, Response, Body};
-use tracing::{debug, info, error};
+use tracing::{debug, info};
 use hyperlane_core::{Checkpoint, CheckpointWithMessageId, MultisigSignedCheckpoint, HyperlaneSignerExt};
-use hyperlane_core::accumulator::merkle::Proof;
-use crate::apiserver::{State, ValidityRequest, ValidityResponse};
-use crate::msg::metadata::{MessageMetadataBuilder, MetadataBuilder, SubModuleMetadata};
+
+use crate::api::api_msgs::{new_validity_response_error, ValidityBatchRequest, ValidityBatchResponse, ValidityRequest, ValidityResponse};
+use crate::apiserver::State;
 use crate::msg::pending_message::PendingMessage;
 use crate::msg::metadata::multisig::{MetadataToken, MultisigMetadata};
+use crate::msg::metadata::SubModuleMetadata;
 
 #[tracing::instrument(skip(req))]
-pub async fn check_validity(mut req: Request<State>) -> tide::Result {
+pub async fn check_validity_request(mut req: Request<State>) -> tide::Result {
     info!("0");
-    let ValidityRequest { domain, message } = req.body_json().await?;
+    let validity_request: ValidityRequest = req.body_json().await?;
     info!("1");
+
+    let state = req.state().clone();
+
+    match check_validity(&validity_request, &state).await {
+        Ok(validity_resp) => {
+            let mut res = Response::new(200);
+            res.set_body(Body::from_json(&validity_resp)?);
+            Ok(res)
+        }
+        Err(e) => {
+            let mut res = Response::new(404);
+            let response_body = new_validity_response_error(e);
+            res.set_body(Body::from_json(&response_body)?);
+            Ok(res)
+        }
+    }
+}
+
+#[tracing::instrument(skip(validity_request))]
+pub async fn check_validity(validity_request: &ValidityRequest, state: &State) -> Result<ValidityResponse, String> {
+    let ValidityRequest {
+        domain,
+        message,
+    } = validity_request;
 
     let State {
         origin_chains,
@@ -31,19 +53,21 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         msg_ctxs,
         signer,
         ..
-    } = req.state().clone();
+    } = state;
 
     // Get the prover from the prover_syncs map based on the domain.
-    let prover = prover_syncs.get(&domain).cloned().ok_or_else(|| tide::Error::from_str(403, "Prover not found"))?;
+    let prover = prover_syncs.get(&domain).cloned().ok_or_else(|| "Prover not found")?;
     info!("2");
 
     // Get the database from the dbs map based on the domain.
-    let db_clone = dbs.get(&domain).ok_or_else(|| tide::Error::from_str(402, "Database not found"))?.clone();
+    let db_clone = dbs.get(&domain)
+        .ok_or_else(|| "Database not found")?
+        .clone();
     info!("3");
 
     let destination_ctxs = destination_chains
         .keys()
-        .filter(|&destination| destination != &domain)
+        .filter(|&destination| destination != domain)
         .map(|destination| {
             (
                 destination.id(),
@@ -61,40 +85,27 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
 
     // Skip if not whitelisted.
     if !whitelist.msg_matches(&message, true) {
-        debug!(?message, whitelist=?whitelist, "Message not whitelisted, skipping");
-
-        let res = Response::builder(404).body(json!({
-            "code": 404,
-            "message": "not whitelisted"
-        })).content_type(mime::JSON).build();
-        return Ok(res);
+        let err_msg = "Message not whitelisted, skipping";
+        debug!(?message, whitelist=?whitelist, err_msg);
+        return Err(err_msg.to_string());
     }
     info!("4");
 
     // Skip if the message is blacklisted.
     if blacklist.msg_matches(&message, false) {
-        debug!(?message, blacklist=?blacklist, "Message blacklisted, skipping");
-
-        let res = Response::builder(404).body(json!({
-            "code": 404,
-            "message": "is blacklisted"
-        })).content_type(mime::JSON).build();
-        return Ok(res);
+        let err_msg = "Message blacklisted, skipping";
+        debug!(?message, blacklist=?blacklist, err_msg);
+        return Err(err_msg.to_string());
     }
     info!("5");
 
     // Skip if the message is intended for this origin.
     if destination == db_clone.domain().id() {
-        debug!(?message, "Message destined for self, skipping");
-
-        let res = Response::builder(404).body(json!({
-            "code": 404,
-            "message": "destination is origin"
-        })).content_type(mime::JSON).build();
-        return Ok(res);
+        let err_msg = "Message destined for self, skipping";
+        debug!(?message, err_msg);
+        return Err(err_msg.to_string());
     }
     info!("6");
-
 
     debug!(%message, "Sending message to submitter");
 
@@ -129,7 +140,7 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
 
     info!("ckp with mid: {:?}", cm);
 
-    let signed_check = signer.sign(cm).await?;
+    let signed_check = signer.sign(cm).await.or_else(|err| Err(err.to_string()))?;
     info!("9");
     info!("signed check: {:?}", signed_check);
 
@@ -142,7 +153,6 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         .map_err(Report::from).expect("TODO: panic message");
     info!("10");
     info!("proof: {:?}", proof);
-
 
     let mcm = MultisigSignedCheckpoint {
         checkpoint: cm,
@@ -164,10 +174,9 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
     // Note: only one meta is needed as more of it will cause Arithemetic Overflow
     let metadata = format_aggregation_meta(&mut [sub_meta1, ], 1);
     
-
-    // Finally, build the submit arg and dispatch it to the submitter.
+    // Finally, build submit arg and dispatch it to the submitter.
     let pending_msg = PendingMessage::from_persisted_retries(
-        message,
+        message.clone(),
         destination_ctxs[&destination].clone(),
     );
 
@@ -187,12 +196,9 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
     info!("11");
 
     if is_already_delivered {
-        debug!("Message has already been delivered, marking as submitted.");
-        let res = Response::builder(404).body(json!({
-            "code": 404,
-            "message": "message already delivered"
-        })).content_type(mime::JSON).build();
-        return Ok(res)
+        let err_msg = "Message has already been delivered, marking as submitted.";
+        debug!(err_msg);
+        return Err(err_msg.to_string());
     }
 
     info!("12");
@@ -206,15 +212,12 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
     info!("13");
 
     if !is_contract {
+        let err_msg = "Dropping message because recipient is not a contract";
         info!(
             recipient=?pending_msg.message.recipient,
-            "Dropping message because recipient is not a contract"
+            err_msg
         );
-        let res = Response::builder(404).body(json!({
-            "code": 404,
-            "message": "recipient is not a contract"
-        })).content_type(mime::JSON).build();
-        return Ok(res);
+        return Err(err_msg.to_string());
     }
     info!("14");
 
@@ -233,14 +236,15 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
         .origin_gas_payment_enforcer
         .message_meets_gas_payment_requirement(&pending_msg.message, &tx_cost_estimate)
         .await
-        .context("checking if message meets gas payment requirement").map_err(Report::from).expect("TODO: panic message") else {
-        info!(?tx_cost_estimate, "Gas payment requirement not met yet");
-        let res = Response::builder(404).body(json!({
-            "code": 404,
-            "message": "gas payment not met yet"
-        })).content_type(mime::JSON).build();
-        return Ok(res);
-    };
+        .context("checking if message meets gas payment requirement")
+        .map_err(Report::from)
+        .expect("TODO: panic message")
+        else {
+            let err_msg = "Gas payment requirement not met yet";
+            info!(?tx_cost_estimate, err_msg);
+            return Err(err_msg.to_string());
+        };
+
     info!("17");
 
     debug!(
@@ -252,27 +256,22 @@ pub async fn check_validity(mut req: Request<State>) -> tide::Result {
 
     if let Some(max_limit) = pending_msg.ctx.transaction_gas_limit {
         if gas_limit > max_limit {
-            info!("Message delivery estimated gas exceeds max gas limit");
-            let res = Response::builder(404).body(json!({
-                "code": 404,
-                "message": "delivery gas exceeds estimation"
-            })).content_type(mime::JSON).build();
-            return Ok(res);
+            let err_msg = "Message delivery estimated gas exceeds max gas limit";
+            info!(err_msg);
+            return Err(err_msg.to_string());
         }
     }
     info!("18");
-
 
     let response_body = ValidityResponse {
         message: pending_msg.message,
         metadata: metadata,
         gas_limit,
+        error: None,
     };
     info!("19");
 
-    let mut res = Response::new(200);
-    res.set_body(Body::from_json(&response_body)?);
-    Ok(res)
+    Ok(response_body)
 }
 
 const METADATA_RANGE_SIZE: usize = 4;
@@ -369,6 +368,94 @@ fn format_metadata(t: &str, metadata: MultisigMetadata) -> Result<Vec<u8>> {
                 .concat()),
         }
     };
+
     let metas: Result<Vec<Vec<u8>>> = token_layout.deref().iter().map(build_token).collect();
     Ok(metas?.into_iter().flatten().collect())
+}
+
+pub async fn batch_check_validity_request(mut req: Request<State>) -> tide::Result {
+    let validity_batch_request : ValidityBatchRequest = req.body_json().await?;
+    let state = req.state().clone();
+
+    let batch_response = batch_check_validity(&validity_batch_request, &state).await;
+
+    let mut res = Response::new(200);
+    res.set_body(Body::from_json(&batch_response)?);
+    Ok(res)
+}
+
+pub async fn batch_check_validity(validity_batch_request: &ValidityBatchRequest, state: &State) -> ValidityBatchResponse {
+    let mut response_body = ValidityBatchResponse::new();
+
+    for request in &validity_batch_request.requests {
+        let validity_response = check_validity(&request, &state).await.unwrap_or_else(|e| new_validity_response_error(e));
+
+        response_body.responses.push(validity_response)
+    }
+
+    response_body
+}
+
+#[cfg(test)]
+mod test {
+    use hyperlane_base::db::test_utils;
+    use hyperlane_core::HyperlaneMessage;
+    use crate::api::api_msgs::{ValidityBatchRequest, ValidityRequest};
+    use crate::api::validity::{batch_check_validity, check_validity};
+    use crate::testutils::TestFixture;
+
+    #[tokio::test]
+    async fn test_basic_validity() {
+        test_utils::run_test_db(|_db| async move {
+            let test_fixture = TestFixture::new();
+
+            let mut test_message: HyperlaneMessage = Default::default();
+            test_message.origin = test_fixture.get_from_domain_id();
+            test_message.destination = test_fixture.get_to_domain_id();
+
+            let request = ValidityRequest {
+                domain: test_fixture.get_from_domain(),
+                message: test_message,
+            };
+
+            match check_validity(&request, test_fixture.get_state()).await {
+                Ok(_) => {},
+                Err(err_msg) => {
+                    println!("Error occurred: {}", err_msg);
+                    assert!(false);
+                }
+            }
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_batch_validity() {
+        test_utils::run_test_db(|_db| async move {
+            let test_fixture = TestFixture::new();
+
+            let mut validity_batch_request = ValidityBatchRequest::new();
+
+            let num_test_msgs = 3;
+
+            for _i in 0..num_test_msgs {
+                let mut test_message: HyperlaneMessage = Default::default();
+                test_message.origin = test_fixture.get_from_domain_id();
+                test_message.destination = test_fixture.get_to_domain_id();
+
+                let request = ValidityRequest {
+                    domain: test_fixture.get_from_domain(),
+                    message: test_message,
+                };
+
+                validity_batch_request.requests.push(request);
+            }
+
+            let result = batch_check_validity(&validity_batch_request, test_fixture.get_state()).await;
+
+            assert_eq!(num_test_msgs, result.responses.len());
+            assert!(result.is_ok())
+        })
+            .await;
+    }
 }

@@ -83,6 +83,14 @@ Run binary with env copied from pod:
 env $(cat ./config/validator.fuji.env | grep -v "#" | xargs) ./target/debug/validator
 ```
 
+#### Running unit tests
+
+From within the rust source code directory, you can call the following to run unit tests:
+```bash
+cargo test
+```
+This command will run all unit tests at that directory and each sub-directory.
+
 #### Automated E2E Test
 
 To perform an automated e2e test of the agents locally, from within the `hyperlane-monorepo/rust` directory, run:

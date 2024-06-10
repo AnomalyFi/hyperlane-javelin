@@ -1,5 +1,5 @@
 mod aggregation;
-mod base;
+pub(crate) mod base;
 mod ccip_read;
 pub(crate) mod multisig;
 mod null_metadata;
