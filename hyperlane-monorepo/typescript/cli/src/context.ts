@@ -64,7 +64,7 @@ interface CommandContextBase {
 }
 
 // This makes return type dynamic based on the input settings
-type CommandContext<P extends ContextSettings> = CommandContextBase &
+export type CommandContext<P extends ContextSettings> = CommandContextBase &
   (P extends { keyConfig: object }
     ? { signer: ethers.Signer }
     : { signer: undefined }) &

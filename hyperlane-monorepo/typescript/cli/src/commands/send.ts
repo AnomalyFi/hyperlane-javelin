@@ -6,6 +6,7 @@ import { TokenType } from '@hyperlane-xyz/sdk';
 import { log } from '../../logger.js';
 import { sendTestMessage } from '../send/message.js';
 import { sendTestTransfer } from '../send/transfer.js';
+import { sendTestTransferMulti } from '../send/transferMultiple.js';
 
 import {
   chainsCommandOption,
@@ -23,6 +24,7 @@ export const sendCommand: CommandModule = {
     yargs
       .command(messageCommand)
       .command(transferCommand)
+      .command(transferMultipleCommand)
       .version(false)
       .demandCommand(),
   handler: () => log('Command required'),
@@ -133,6 +135,74 @@ const transferCommand: CommandModule = {
     const skipWaitForDelivery: boolean = argv.quick;
     await sendTestTransfer({
       key,
+      chainConfigPath,
+      coreArtifactsPath,
+      origin,
+      destination,
+      routerAddress,
+      tokenType,
+      wei,
+      recipient,
+      timeoutSec,
+      skipWaitForDelivery,
+    });
+    process.exit(0);
+  },
+};
+
+/**
+ * Transfer Multiple command
+ */
+const transferMultipleCommand: CommandModule = {
+  command: 'transferMulti',
+  describe: 'Issue test token transfers on a warp route from multiple accounts',
+  builder: (yargs) =>
+    yargs.options({
+      ...messageOptions,
+      keys: {
+        type: 'string',
+        description: 'The private keys of the signers divided by comma',
+      },
+      txs: {
+        type: 'string',
+        description: 'Num txns to issue from an account',
+      },
+      router: {
+        type: 'string',
+        description: 'The address of the token router contract',
+      },
+      type: {
+        type: 'string',
+        description: 'Warp token type (native or collateral)',
+        default: TokenType.collateral,
+        choices: [TokenType.collateral, TokenType.native],
+      },
+      wei: {
+        type: 'string',
+        description: 'Amount in wei to send',
+        default: 1,
+      },
+      recipient: {
+        type: 'string',
+        description: 'Token recipient address (defaults to sender)',
+      },
+    }),
+  handler: async (argv: any) => {
+    const keys: string = argv.keys;
+    const numTxs: number = parseInt(argv.txs);
+    const chainConfigPath: string = argv.chains;
+    const coreArtifactsPath: string | undefined = argv.core;
+    const origin: string | undefined = argv.origin;
+    const destination: string | undefined = argv.destination;
+    const timeoutSec: number = argv.timeout;
+    const routerAddress: string | undefined = argv.router;
+    const tokenType: TokenType = argv.type;
+    const wei: string = argv.wei;
+    const recipient: string | undefined = argv.recipient;
+    const skipWaitForDelivery: boolean = argv.quick;
+    await sendTestTransferMulti({
+      keys,
+      numTxPerKey: numTxs,
       chainConfigPath,
       coreArtifactsPath,
       origin,
