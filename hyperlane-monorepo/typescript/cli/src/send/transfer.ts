@@ -8,6 +8,7 @@ import {
 import {
   ChainName,
   EvmHypCollateralAdapter,
+  EvmHypSyntheticAdapter,
   HyperlaneContractsMap,
   HyperlaneCore,
   MultiProtocolProvider,
@@ -16,7 +17,7 @@ import {
 } from '@hyperlane-xyz/sdk';
 import { Address, timeout } from '@hyperlane-xyz/utils';
 
-import { log, logBlue, logGreen } from '../../logger.js';
+import { log, logBlue, logGreen, logPink } from '../../logger.js';
 import { MINIMUM_TEST_SEND_GAS } from '../consts.js';
 import { getContext, getMergedContractAddresses } from '../context.js';
 import { runPreflightChecks } from '../deploy/utils.js';
@@ -85,6 +86,8 @@ export async function sendTestTransfer({
     );
   } else if (tokenType === TokenType.native) {
     await assertNativeBalances(multiProvider, signer, [origin], wei.toString());
+  } else if (tokenType === TokenType.synthetic) {
+    logPink('using synthetic')
   } else {
     throw new Error(
       'Only collateral and native token types are currently supported in the CLI. For synthetic transfers, try the Warp UI.',
@@ -163,38 +166,76 @@ async function executeDelivery({
       await approveTx.wait();
     }
   }
+  
+  if (tokenType === TokenType.synthetic) {
+    // collateral & native
+    // TODO move next section into MultiProtocolTokenApp when it exists
+    const adapter = new EvmHypSyntheticAdapter(
+      origin,
+      MultiProtocolProvider.fromMultiProvider(multiProvider),
+      { token: routerAddress },
+    );
+    const signerBalanceStr = await adapter.getBalance(signerAddress);
+    const signerBalance = BigNumber.from(signerBalanceStr);
+    if (signerBalance.lt(wei.toString())) {
+      throw new Error(`required hypsynthetic balance(${signerBalance._hex}) lower than what needs to be sent(${wei.toString()})`)
+    }
+    const destinationDomain = multiProvider.getDomainId(destination);
+    const gasPayment = await adapter.quoteGasPayment(destinationDomain);
+    const txValue = gasPayment;
+    const transferTx = await adapter.populateTransferRemoteTx({
+      weiAmountOrId: wei,
+      destination: destinationDomain,
+      recipient,
+      txValue,
+    });
 
-  // TODO move next section into MultiProtocolTokenApp when it exists
-  const adapter = new EvmHypCollateralAdapter(
-    origin,
-    MultiProtocolProvider.fromMultiProvider(multiProvider),
-    { token: routerAddress },
-  );
-  const destinationDomain = multiProvider.getDomainId(destination);
-  const gasPayment = await adapter.quoteGasPayment(destinationDomain);
-  const txValue =
-    tokenType === TokenType.native
-      ? BigNumber.from(gasPayment).add(wei).toString()
-      : gasPayment;
-  const transferTx = await adapter.populateTransferRemoteTx({
-    weiAmountOrId: wei,
-    destination: destinationDomain,
-    recipient,
-    txValue,
-  });
+    const txResponse = await connectedSigner.sendTransaction(transferTx);
+    const txReceipt = await multiProvider.handleTx(origin, txResponse);
 
-  const txResponse = await connectedSigner.sendTransaction(transferTx);
-  const txReceipt = await multiProvider.handleTx(origin, txResponse);
+    const message = core.getDispatchedMessages(txReceipt)[0];
+    logBlue(`Sent message from ${origin} to ${recipient} on ${destination}.`);
+    logBlue(`Message ID: ${message.id}`);
 
-  const message = core.getDispatchedMessages(txReceipt)[0];
-  logBlue(`Sent message from ${origin} to ${recipient} on ${destination}.`);
-  logBlue(`Message ID: ${message.id}`);
+    if (skipWaitForDelivery) return;
 
-  if (skipWaitForDelivery) return;
+    // Max wait 10 minutes
+    await core.waitForMessageProcessed(txReceipt, 10000, 60);
+    logGreen(`Transfer sent to destination chain!`);
+  } else {
+    // collateral & native
+    // TODO move next section into MultiProtocolTokenApp when it exists
+    const adapter = new EvmHypCollateralAdapter(
+      origin,
+      MultiProtocolProvider.fromMultiProvider(multiProvider),
+      { token: routerAddress },
+    );
+    const destinationDomain = multiProvider.getDomainId(destination);
+    const gasPayment = await adapter.quoteGasPayment(destinationDomain);
+    const txValue =
+      tokenType === TokenType.native
+        ? BigNumber.from(gasPayment).add(wei).toString()
+        : gasPayment;
+    const transferTx = await adapter.populateTransferRemoteTx({
+      weiAmountOrId: wei,
+      destination: destinationDomain,
+      recipient,
+      txValue,
+    });
 
-  // Max wait 10 minutes
-  await core.waitForMessageProcessed(txReceipt, 10000, 60);
-  logGreen(`Transfer sent to destination chain!`);
+    const txResponse = await connectedSigner.sendTransaction(transferTx);
+    const txReceipt = await multiProvider.handleTx(origin, txResponse);
+
+    const message = core.getDispatchedMessages(txReceipt)[0];
+    logBlue(`Sent message from ${origin} to ${recipient} on ${destination}.`);
+    logBlue(`Message ID: ${message.id}`);
+
+    if (skipWaitForDelivery) return;
+
+    // Max wait 10 minutes
+    await core.waitForMessageProcessed(txReceipt, 10000, 60);
+    logGreen(`Transfer sent to destination chain!`);
+  }
 }
 
 async function getWrappedToken(
