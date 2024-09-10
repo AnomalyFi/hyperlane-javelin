@@ -7,18 +7,19 @@ volumes:
   validator_data:
 
 services:
-  # build-agents:
-  #   image: hyperlane-agents
-  #   build:
-  #     context: ./hyperlane-monorepo/rust
-  #     dockerfile: Dockerfile
-  #   command: ['echo', 'build completed']
+  build-agents:
+    image: hyperlane-agents
+    build:
+      context: ./hyperlane-monorepo/rust
+      dockerfile: Dockerfile
+    command: ['echo', 'build completed']
 
   apiserver:
-    image: public.ecr.aws/m3z5q4y6/hyperlane-javelin
+    # image: public.ecr.aws/m3z5q4y6/hyperlane-javelin
+    image: hyperlane-agents
     depends_on:
-      # build-agents:
-      #   condition: service_completed_successfully
+      build-agents:
+        condition: service_completed_successfully
       validator:
         condition: service_completed_successfully
     volumes:
@@ -40,9 +41,10 @@ services:
       - "host.docker.internal:host-gateway"
 
   validator:
-    image: public.ecr.aws/m3z5q4y6/hyperlane-javelin
-    # depends_on:
-    #   - build-agents
+    # image: public.ecr.aws/m3z5q4y6/hyperlane-javelin
+    image: hyperlane-agents
+    depends_on:
+      - build-agents
     volumes:
       - "validator_data:/data"
       - "$CONFIG_FILES:/agent-config.json"
