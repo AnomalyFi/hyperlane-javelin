@@ -1,17 +1,25 @@
+use std::collections::HashMap;
 use std::ops::Deref;
+use std::sync::Arc;
 
 use ethers::abi::{Token};
 use eyre::{Context, Report, Result};
 
 use tide::{Request, Response, Body};
+use tokio::sync::RwLock;
 use tracing::{debug, info};
-use hyperlane_core::{Checkpoint, CheckpointWithMessageId, MultisigSignedCheckpoint, HyperlaneSignerExt};
+use hyperlane_base::db::HyperlaneRocksDB;
+use hyperlane_base::settings::ChainConf;
+use hyperlane_core::{Checkpoint, CheckpointWithMessageId, MultisigSignedCheckpoint, HyperlaneSignerExt, HyperlaneDomain};
+use hyperlane_ethereum::SingletonSignerHandle;
 
 use crate::api::api_msgs::{new_validity_response_error, ValidityBatchRequest, ValidityBatchResponse, ValidityRequest, ValidityResponse};
-use crate::apiserver::State;
-use crate::msg::pending_message::PendingMessage;
+use crate::apiserver::{ContextKey, State};
+use crate::merkle_tree::builder::MerkleTreeBuilder;
+use crate::msg::pending_message::{MessageContext, PendingMessage};
 use crate::msg::metadata::multisig::{MetadataToken, MultisigMetadata};
 use crate::msg::metadata::SubModuleMetadata;
+use crate::settings::matching_list::MatchingList;
 
 #[tracing::instrument(skip(req))]
 pub async fn check_validity_request(mut req: Request<State>) -> tide::Result {
@@ -19,6 +27,7 @@ pub async fn check_validity_request(mut req: Request<State>) -> tide::Result {
     let validity_request: ValidityRequest = req.body_json().await?;
     info!("1");
 
+    // We clone the state here so now reason to redo the clone within the function itself
     let state = req.state().clone();
 
     match check_validity(&validity_request, &state).await {
@@ -56,13 +65,13 @@ pub async fn check_validity(validity_request: &ValidityRequest, state: &State) -
     } = state;
 
     // Get the prover from the prover_syncs map based on the domain.
-    let prover = prover_syncs.get(&domain).cloned().ok_or_else(|| "Prover not found")?;
+    let prover = prover_syncs.get(&domain).ok_or_else(|| "Prover not found")?;
     info!("2");
 
     // Get the database from the dbs map based on the domain.
     let db_clone = dbs.get(&domain)
-        .ok_or_else(|| "Database not found")?
-        .clone();
+        .ok_or_else(|| "Database not found")?;
+
     info!("3");
 
     let destination_ctxs = destination_chains
@@ -373,9 +382,27 @@ fn format_metadata(t: &str, metadata: MultisigMetadata) -> Result<Vec<u8>> {
     Ok(metas?.into_iter().flatten().collect())
 }
 
+#[derive(Clone, Debug)]
+pub struct DBState {
+    pub origin_chains: HashMap<HyperlaneDomain, ChainConf>,
+    pub destination_chains: HashMap<HyperlaneDomain, ChainConf>,
+    pub prover_syncs: HashMap<HyperlaneDomain, Arc<RwLock<MerkleTreeBuilder>>>,
+    pub dbs: HashMap<HyperlaneDomain, HyperlaneRocksDB>,
+    pub whitelist: Arc<MatchingList>,
+    pub blacklist: Arc<MatchingList>,
+    pub msg_ctxs: HashMap<ContextKey, Arc<MessageContext>>,
+    pub signer: SingletonSignerHandle,
+}
+
 pub async fn batch_check_validity_request(mut req: Request<State>) -> tide::Result {
     let validity_batch_request : ValidityBatchRequest = req.body_json().await?;
     let state = req.state().clone();
+
+
+    //The reason for this setup is because Tide State is kept common across requests so its useful for stuff like DB connections
+    // In our case we want to clone the state once at the beginning of a batch of requests so we can work off of that state for an entire block
+    // This allows the API Server to keep its sync element from when we forked the relayer code but also allows for common state within a block
+    // https://docs.rs/tide/latest/tide/struct.Server.html
 
     let batch_response = batch_check_validity(&validity_batch_request, &state).await;
 
